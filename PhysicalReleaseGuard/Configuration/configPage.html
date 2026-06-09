@@ -4,7 +4,7 @@
     <meta charset="utf-8">
 </head>
 <body>
-    <div id="PhysicalReleaseGuardConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button">
+    <div id="PhysicalReleaseGuardConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-checkbox">
         <div data-role="content">
             <div class="content-primary">
                 <form class="pluginConfigurationForm">
@@ -23,6 +23,14 @@
                         </div>
                     </div>
                     <br />
+                    <div class="sectionTitleContainer">
+                        <h2 class="sectionTitle">Excluded Libraries</h2>
+                    </div>
+                    <div id="libraryExclusionsContainer" class="checkboxListContainer"></div>
+                    <div class="fieldDescription">
+                        Selected libraries are skipped entirely by the scheduled scan. Items in those libraries will not have the <code>Hidden</code> tag added or removed by this plugin.
+                    </div>
+                    <br />
                     <button is="emby-button" type="submit" class="raised button-submit block">
                         <span>Save</span>
                     </button>
@@ -33,11 +41,94 @@
         <script>
             var pluginId = "A7B3C9E1-4F2D-4E8B-9A6C-1D3F5E7B9A0C";
             var page = document.querySelector('#PhysicalReleaseGuardConfigPage');
+            var librariesLoaded = false;
+
+            function getVirtualFolders() {
+                if (ApiClient.getVirtualFolders) {
+                    return ApiClient.getVirtualFolders();
+                }
+
+                return ApiClient.getJSON(ApiClient.getUrl("Library/VirtualFolders"));
+            }
+
+            function getLibraryId(library) {
+                return (library.ItemId || library.itemId || library.Id || library.id || "").toString();
+            }
+
+            function normalizeLibraryId(libraryId) {
+                return (libraryId || "").toString().replace(/-/g, "").toLowerCase();
+            }
+
+            function getLibraryName(library) {
+                return (library.Name || library.name || "").toString();
+            }
+
+            function createCheckbox() {
+                try {
+                    return document.createElement("input", { is: "emby-checkbox" });
+                } catch (err) {
+                    var input = document.createElement("input");
+                    input.setAttribute("is", "emby-checkbox");
+                    return input;
+                }
+            }
+
+            function renderLibraryExclusions(config) {
+                var container = document.getElementById("libraryExclusionsContainer");
+                var excludedIds = (config.ExcludedLibraryIds || []).map(normalizeLibraryId);
+                var excludedNames = config.ExcludedLibraryNames || [];
+
+                librariesLoaded = false;
+                container.textContent = "Loading libraries...";
+
+                return getVirtualFolders().then(function (libraries) {
+                    librariesLoaded = true;
+                    container.innerHTML = "";
+
+                    if (!libraries || libraries.length === 0) {
+                        container.textContent = "No libraries found.";
+                        return;
+                    }
+
+                    libraries.forEach(function (library) {
+                        var libraryId = getLibraryId(library);
+                        var normalizedLibraryId = normalizeLibraryId(libraryId);
+                        var libraryName = getLibraryName(library);
+                        var collectionType = (library.CollectionType || library.collectionType || "").toString();
+
+                        var label = document.createElement("label");
+                        label.className = "checkboxContainer";
+                        label.style.display = "block";
+                        label.style.margin = "0 0 .75em";
+
+                        var checkbox = createCheckbox();
+                        checkbox.type = "checkbox";
+                        checkbox.className = "libraryExclusionCheckbox";
+                        checkbox.dataset.libraryId = libraryId;
+                        checkbox.dataset.libraryName = libraryName;
+                        checkbox.checked = excludedIds.indexOf(normalizedLibraryId) !== -1 ||
+                            excludedNames.indexOf(libraryName) !== -1;
+
+                        var text = document.createElement("span");
+                        text.textContent = collectionType ? libraryName + " (" + collectionType + ")" : libraryName;
+
+                        label.appendChild(checkbox);
+                        label.appendChild(text);
+                        container.appendChild(label);
+                    });
+                }).catch(function () {
+                    container.textContent = "Could not load libraries. Existing exclusions will be preserved when saving.";
+                });
+            }
 
             page.addEventListener("pageshow", function () {
                 Dashboard.showLoadingMsg();
                 ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                     document.getElementById("txtTmdbApiKey").value = config.TmdbApiKey || "";
+                    return renderLibraryExclusions(config);
+                }).then(function () {
+                    Dashboard.hideLoadingMsg();
+                }).catch(function () {
                     Dashboard.hideLoadingMsg();
                 });
             });
@@ -48,6 +139,20 @@
 
                 ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                     config.TmdbApiKey = document.getElementById("txtTmdbApiKey").value;
+
+                    if (librariesLoaded) {
+                        var checkedLibraries = Array.prototype.slice.call(
+                            document.querySelectorAll(".libraryExclusionCheckbox:checked"));
+
+                        config.ExcludedLibraryIds = checkedLibraries
+                            .map(function (checkbox) { return checkbox.dataset.libraryId; })
+                            .filter(function (libraryId) { return !!libraryId; });
+
+                        config.ExcludedLibraryNames = checkedLibraries
+                            .map(function (checkbox) { return checkbox.dataset.libraryName; })
+                            .filter(function (libraryName) { return !!libraryName; });
+                    }
+
                     ApiClient.updatePluginConfiguration(pluginId, config).then(function (result) {
                         Dashboard.processPluginConfigurationUpdateResult(result);
                     });

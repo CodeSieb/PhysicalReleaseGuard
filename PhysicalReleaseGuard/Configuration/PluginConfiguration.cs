@@ -8,4 +8,15 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the TMDb API key used to query movie and series release data.
     /// </summary>
     public string TmdbApiKey { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the Jellyfin library IDs that should be skipped by the scan.
+    /// </summary>
+    public string[] ExcludedLibraryIds { get; set; } = Array.Empty<string>();
+
+    /// <summary>
+    /// Gets or sets the Jellyfin library names that should be skipped by the scan.
+    /// Used as a fallback if a library ID is unavailable.
+    /// </summary>
+    public string[] ExcludedLibraryNames { get; set; } = Array.Empty<string>();
 }

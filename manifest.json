@@ -8,11 +8,11 @@
     "category": "General",
     "versions": [
       {
-        "version": "1.1.0.0",
-        "changelog": "Adds TV series support using TMDb TV search and DVD/physical episode-group evidence while keeping movie physical release detection.",
+        "version": "1.2.0.0",
+        "changelog": "Adds configurable library exclusions so selected libraries are skipped and left untouched by the Hidden tag scan.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/plugin/PhysicalReleaseGuard.zip",
-        "checksum": "b2a468d1b751ed2c623ae1747aef2522",
+        "checksum": "5a069b42eb5a892fb688d487d91094f8",
         "timestamp": "2026-06-09T00:00:00Z"
       }
     ]

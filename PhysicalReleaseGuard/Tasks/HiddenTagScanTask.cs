@@ -1,5 +1,6 @@
 using Jellyfin.Data.Enums;
 using PhysicalReleaseGuard.Services;
+using System.Globalization;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
@@ -126,6 +127,9 @@ public class HiddenTagScanTask : IScheduledTask
 
     private IReadOnlyList<BaseItem> GetItemsToProcess()
     {
+        var excludedLibraryIds = GetExcludedLibraryIds();
+        var excludedLibraryNames = GetExcludedLibraryNames();
+
         var query = new InternalItemsQuery
         {
             IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Series },
@@ -133,8 +137,89 @@ public class HiddenTagScanTask : IScheduledTask
             IsVirtualItem = false
         };
 
-        return _libraryManager.GetItemList(query)
+        var items = _libraryManager.GetItemList(query)
             .Where(item => item is Movie or Series)
             .ToList();
+
+        if (excludedLibraryIds.Count == 0 && excludedLibraryNames.Count == 0)
+        {
+            return items;
+        }
+
+        var includedItems = items
+            .Where(item => !IsInExcludedLibrary(item, excludedLibraryIds, excludedLibraryNames))
+            .ToList();
+
+        var skippedCount = items.Count - includedItems.Count;
+        _logger.LogInformation(
+            "Skipped {SkippedCount} items from excluded libraries. Processing {IncludedCount} remaining items.",
+            skippedCount,
+            includedItems.Count);
+
+        return includedItems;
+    }
+
+    private bool IsInExcludedLibrary(
+        BaseItem item,
+        ISet<string> excludedLibraryIds,
+        ISet<string> excludedLibraryNames)
+    {
+        var collectionFolders = _libraryManager.GetCollectionFolders(item);
+
+        foreach (var folder in collectionFolders)
+        {
+            var normalizedFolderId = NormalizeLibraryId(folder.Id.ToString("N"));
+            var folderName = folder.Name ?? string.Empty;
+
+            if (!string.IsNullOrWhiteSpace(normalizedFolderId) && excludedLibraryIds.Contains(normalizedFolderId))
+            {
+                _logger.LogDebug(
+                    "Skipping '{Name}' because library '{LibraryName}' ({LibraryId}) is excluded.",
+                    item.Name,
+                    folderName,
+                    normalizedFolderId);
+                return true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(folderName) && excludedLibraryNames.Contains(folderName))
+            {
+                _logger.LogDebug(
+                    "Skipping '{Name}' because library '{LibraryName}' is excluded by name.",
+                    item.Name,
+                    folderName);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static HashSet<string> GetExcludedLibraryIds()
+    {
+        return (Plugin.Instance?.Configuration.ExcludedLibraryIds ?? Array.Empty<string>())
+            .Select(NormalizeLibraryId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static HashSet<string> GetExcludedLibraryNames()
+    {
+        return (Plugin.Instance?.Configuration.ExcludedLibraryNames ?? Array.Empty<string>())
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => name.Trim())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeLibraryId(string? libraryId)
+    {
+        if (string.IsNullOrWhiteSpace(libraryId))
+        {
+            return string.Empty;
+        }
+
+        return libraryId
+            .Trim()
+            .Replace("-", string.Empty, StringComparison.Ordinal)
+            .ToLower(CultureInfo.InvariantCulture);
     }
 }

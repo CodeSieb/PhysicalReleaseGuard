@@ -1,6 +1,6 @@
 {
   "category": "General",
-  "changelog": "Adds TV series support using TMDb TV search and DVD/physical episode-group evidence while keeping movie physical release detection.",
+  "changelog": "Adds configurable library exclusions so selected libraries are skipped and left untouched by the Hidden tag scan.",
   "description": "Automatically manages a 'Hidden' tag for movies and series based on TMDb physical release data.",
   "guid": "a7b3c9e1-4f2d-4e8b-9a6c-1d3f5e7b9a0c",
   "name": "Physical Release Guard",
@@ -8,7 +8,7 @@
   "owner": "CodeSieb",
   "targetAbi": "10.11.0.0",
   "timestamp": "2026-06-09T00:00:00Z",
-  "version": "1.1.0.0",
+  "version": "1.2.0.0",
   "status": "Active",
   "autoUpdate": true,
   "assemblies": [
