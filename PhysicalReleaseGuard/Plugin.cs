@@ -3,6 +3,7 @@ using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
+using System.Globalization;
 
 namespace PhysicalReleaseGuard;
 
@@ -28,9 +29,8 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             new PluginPageInfo
             {
-                Name = "PhysicalReleaseGuard",
-                EmbeddedResourcePath = GetType().Namespace + ".Configuration.config.html",
-                EnableInMainMenu = false,
+                Name = "config",
+                EmbeddedResourcePath = string.Format(CultureInfo.InvariantCulture, "{0}.Configuration.configPage.html", GetType().Namespace),
             }
         };
     }

@@ -4,7 +4,7 @@
     <meta charset="utf-8">
 </head>
 <body>
-    <div data-role="page" class="pluginConfigurationPage">
+    <div id="PhysicalReleaseGuardConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button">
         <div data-role="content">
             <div class="content-primary">
                 <form class="pluginConfigurationForm">
@@ -32,7 +32,7 @@
 
         <script>
             var pluginId = "A7B3C9E1-4F2D-4E8B-9A6C-1D3F5E7B9A0C";
-            var page = document.querySelector(".pluginConfigurationPage");
+            var page = document.querySelector('#PhysicalReleaseGuardConfigPage');
 
             page.addEventListener("pageshow", function () {
                 Dashboard.showLoadingMsg();
