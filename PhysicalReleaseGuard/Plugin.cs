@@ -29,18 +29,10 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             new PluginPageInfo
             {
-                Name = "config",
+                Name = Name,
                 EmbeddedResourcePath = string.Format(CultureInfo.InvariantCulture, "{0}.Configuration.configPage.html", GetType().Namespace),
             }
         };
-    }
-
-    /// <inheritdoc />
-    public override PluginInfo GetPluginInfo()
-    {
-        var info = base.GetPluginInfo();
-        info.ConfigurationFileName = "PhysicalReleaseGuard.xml";
-        return info;
     }
 
     /// <summary>
