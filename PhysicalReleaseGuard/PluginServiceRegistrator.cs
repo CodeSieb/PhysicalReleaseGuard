@@ -1,11 +1,11 @@
-using HiddenTagPlugin.Services;
-using HiddenTagPlugin.Tasks;
+using PhysicalReleaseGuard.Services;
+using PhysicalReleaseGuard.Tasks;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace HiddenTagPlugin;
+namespace PhysicalReleaseGuard;
 
 /// <summary>
 /// Registers plugin services with the Jellyfin dependency injection container.

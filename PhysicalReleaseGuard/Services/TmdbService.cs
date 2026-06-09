@@ -3,7 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 
-namespace HiddenTagPlugin.Services;
+namespace PhysicalReleaseGuard.Services;
 
 /// <summary>
 /// Service for querying the TMDb API to search movies and retrieve release date information.

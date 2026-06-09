@@ -1,10 +1,12 @@
-using HiddenTagPlugin.Services;
+using Jellyfin.Data.Enums;
+using PhysicalReleaseGuard.Services;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 
-namespace HiddenTagPlugin.Tasks;
+namespace PhysicalReleaseGuard.Tasks;
 
 /// <summary>
 /// Scheduled task that scans all movies in the library and applies
@@ -27,9 +29,9 @@ public class HiddenTagScanTask : IScheduledTask
         _logger = logger;
     }
 
-    public string Name => "Run Hidden Tag Scan";
+    public string Name => "Run Physical Release Guard Scan";
 
-    public string Key => "HiddenTagScan";
+    public string Key => "PhysicalReleaseGuardScan";
 
     public string Description => "Scans all movies in the library and manages the 'Hidden' tag based on TMDb physical release data.";
 
@@ -40,19 +42,19 @@ public class HiddenTagScanTask : IScheduledTask
         // By default, run daily at 3:00 AM
         yield return new TaskTriggerInfo
         {
-            Type = TaskTriggerInfo.TriggerDaily,
+            Type = TaskTriggerInfoType.DailyTrigger,
             TimeOfDayTicks = TimeSpan.FromHours(3).Ticks
         };
     }
 
     public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Hidden Tag Scan started.");
+        _logger.LogInformation("Physical Release Guard Scan started.");
 
         if (!Plugin.Instance!.HasTmdbApiKey())
         {
             _logger.LogError(
-                "TMDb API key is not configured. Go to Dashboard > Plugins > Hidden Tag Manager to set your API key, " +
+                "TMDb API key is not configured. Go to Dashboard > Plugins > Physical Release Guard to set your API key, " +
                 "or set the TMDbApiKey environment variable. Scan aborted.");
             progress.Report(100);
             return;
@@ -108,7 +110,7 @@ public class HiddenTagScanTask : IScheduledTask
         }
 
         _logger.LogInformation(
-            "Hidden Tag Scan complete. Processed: {Processed}, Modified: {Modified}, Skipped (errors): {Skipped}",
+            "Physical Release Guard Scan complete. Processed: {Processed}, Modified: {Modified}, Skipped (errors): {Skipped}",
             processed,
             modified,
             skipped);
@@ -118,7 +120,7 @@ public class HiddenTagScanTask : IScheduledTask
     {
         var query = new InternalItemsQuery
         {
-            IncludeItemTypes = new[] { "Movie" },
+            IncludeItemTypes = new[] { BaseItemKind.Movie },
             Recursive = true,
             IsVirtualItem = false
         };

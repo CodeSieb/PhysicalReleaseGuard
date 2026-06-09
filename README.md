@@ -1,4 +1,4 @@
-# Hidden Tag Plugin for Jellyfin
+# Physical Release Guard for Jellyfin
 
 A Jellyfin plugin that automatically manages a `Hidden` tag for movies based on [TMDb](https://www.themoviedb.org/) physical release data.
 
@@ -25,32 +25,32 @@ The plugin uses TMDb release type **5** (Physical) to determine whether a physic
 ### Build from source
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/HiddenTagPlugin.git
-cd HiddenTagPlugin
+git clone https://github.com/YOUR_USERNAME/PhysicalReleaseGuard.git
+cd PhysicalReleaseGuard
 dotnet restore
 dotnet build -c Release
 ```
 
 > ⚠️ You'll need the [.NET 8.0 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) installed to build.
 
-The compiled `HiddenTagPlugin.dll` will be in `HiddenTagPlugin/bin/Release/net8.0/`.
+The compiled `PhysicalReleaseGuard.dll` will be in `PhysicalReleaseGuard/bin/Release/net8.0/`.
 
 ### Install in Jellyfin
 
-1. Copy the built `HiddenTagPlugin.dll` to your Jellyfin `plugins/HiddenTagPlugin/` directory
+1. Copy the built `PhysicalReleaseGuard.dll` to your Jellyfin `plugins/PhysicalReleaseGuard/` directory
 2. Restart Jellyfin
-3. Go to **Dashboard → Plugins → Hidden Tag Manager** and enter your TMDb API key
+3. Go to **Dashboard → Plugins → Physical Release Guard** and enter your TMDb API key
 4. Optionally set the `TMDbApiKey` environment variable instead
 
 ## Usage
 
 ### Manual scan
 
-Go to **Dashboard → Scheduled Tasks → Run Hidden Tag Scan** and click the play button.
+Go to **Dashboard → Scheduled Tasks → Run Physical Release Guard Scan** and click the play button.
 
 ### Scheduled scan
 
-By default, the plugin runs a daily scan at 3:00 AM. You can adjust this in **Dashboard → Scheduled Tasks → Run Hidden Tag Scan → Triggers**.
+By default, the plugin runs a daily scan at 3:00 AM. You can adjust this in **Dashboard → Scheduled Tasks → Run Physical Release Guard Scan → Triggers**.
 
 ### Reading the logs
 

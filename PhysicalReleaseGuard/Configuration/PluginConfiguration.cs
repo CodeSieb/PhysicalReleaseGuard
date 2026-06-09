@@ -1,6 +1,6 @@
 using MediaBrowser.Model.Plugins;
 
-namespace HiddenTagPlugin.Configuration;
+namespace PhysicalReleaseGuard.Configuration;
 
 public class PluginConfiguration : BasePluginConfiguration
 {

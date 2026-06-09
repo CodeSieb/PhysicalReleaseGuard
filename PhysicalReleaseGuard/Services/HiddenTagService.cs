@@ -1,9 +1,9 @@
 using System.Globalization;
-using MediaBrowser.Controller.Entities;
-using MediaBrowser.Model.Entities;
+using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
 
-namespace HiddenTagPlugin.Services;
+namespace PhysicalReleaseGuard.Services;
 
 /// <summary>
 /// Service that applies the "Hidden" tag logic based on TMDb physical release data.

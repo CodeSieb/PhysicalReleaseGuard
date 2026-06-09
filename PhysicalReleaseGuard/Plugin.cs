@@ -1,9 +1,9 @@
-using HiddenTagPlugin.Configuration;
+using PhysicalReleaseGuard.Configuration;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Model.Serialization;
 
-namespace HiddenTagPlugin;
+namespace PhysicalReleaseGuard;
 
 public class Plugin : BasePlugin<PluginConfiguration>
 {
@@ -17,7 +17,7 @@ public class Plugin : BasePlugin<PluginConfiguration>
 
     public override Guid Id => Guid.Parse("A7B3C9E1-4F2D-4E8B-9A6C-1D3F5E7B9A0C");
 
-    public override string Name => "Hidden Tag Manager";
+    public override string Name => "Physical Release Guard";
 
     public override string Description => "Automatically manages a 'Hidden' tag for movies based on TMDb physical release data.";
 
