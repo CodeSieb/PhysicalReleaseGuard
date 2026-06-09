@@ -31,6 +31,10 @@ dotnet restore
 dotnet build -c Release
 ```
 
+> ⚠️ You'll need the [.NET 8.0 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) installed to build.
+
+The compiled `HiddenTagPlugin.dll` will be in `HiddenTagPlugin/bin/Release/net8.0/`.
+
 ### Install in Jellyfin
 
 1. Copy the built `HiddenTagPlugin.dll` to your Jellyfin `plugins/HiddenTagPlugin/` directory
