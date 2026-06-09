@@ -1,11 +1,12 @@
 using PhysicalReleaseGuard.Configuration;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
+using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
 
 namespace PhysicalReleaseGuard;
 
-public class Plugin : BasePlugin<PluginConfiguration>
+public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
     public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer)
         : base(applicationPaths, xmlSerializer)
@@ -20,6 +21,19 @@ public class Plugin : BasePlugin<PluginConfiguration>
     public override string Name => "Physical Release Guard";
 
     public override string Description => "Automatically manages a 'Hidden' tag for movies based on TMDb physical release data.";
+
+    public IEnumerable<PluginPageInfo> GetPages()
+    {
+        return new[]
+        {
+            new PluginPageInfo
+            {
+                Name = "PhysicalReleaseGuard",
+                EmbeddedResourcePath = GetType().Namespace + ".Configuration.config.html",
+                EnableInMainMenu = false,
+            }
+        };
+    }
 
     /// <summary>
     /// Checks whether a TMDb API key is configured.

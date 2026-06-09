@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+</head>
+<body>
+    <div data-role="page" class="pluginConfigurationPage">
+        <div data-role="content">
+            <div class="content-primary">
+                <form class="pluginConfigurationForm">
+                    <div class="sectionTitleContainer">
+                        <h2 class="sectionTitle">TMDb API Key</h2>
+                    </div>
+                    <div class="inputContainer">
+                        <input is="emby-input" id="txtTmdbApiKey" type="password" label="TMDb API Key" />
+                        <div class="fieldDescription">
+                            Enter your TMDb API key (v3 auth). Get one at
+                            <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer">
+                                themoviedb.org/settings/api
+                            </a>.
+                            <br />
+                            Can also be set via the <code>TMDbApiKey</code> environment variable.
+                        </div>
+                    </div>
+                    <br />
+                    <button is="emby-button" type="submit" class="raised button-submit block">
+                        <span>Save</span>
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <script>
+            var pluginId = "A7B3C9E1-4F2D-4E8B-9A6C-1D3F5E7B9A0C";
+            var page = document.querySelector(".pluginConfigurationPage");
+
+            page.addEventListener("pageshow", function () {
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                    document.getElementById("txtTmdbApiKey").value = config.TmdbApiKey || "";
+                    Dashboard.hideLoadingMsg();
+                });
+            });
+
+            document.querySelector(".pluginConfigurationForm").addEventListener("submit", function (e) {
+                e.preventDefault();
+                Dashboard.showLoadingMsg();
+
+                ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                    config.TmdbApiKey = document.getElementById("txtTmdbApiKey").value;
+                    ApiClient.updatePluginConfiguration(pluginId, config).then(function (result) {
+                        Dashboard.processPluginConfigurationUpdateResult(result);
+                    });
+                });
+            });
+        </script>
+    </div>
+</html>
