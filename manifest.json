@@ -1,6 +1,6 @@
 [
   {
-    "guid": "A7B3C9E1-4F2D-4E8B-9A6C-1D3F5E7B9A0C",
+    "guid": "a7b3c9e1-4f2d-4e8b-9a6c-1d3f5e7b9a0c",
     "name": "Physical Release Guard",
     "description": "Automatically manages a 'Hidden' tag for movies based on TMDb physical release data.",
     "overview": "Scans your movie library and adds or removes a 'Hidden' tag based on whether a physical release (Blu-ray, DVD, etc.) exists according to TMDb data. Movies without physical releases get tagged so you can filter them out of your library view.",
@@ -8,11 +8,11 @@
     "category": "General",
     "versions": [
       {
-        "version": "1.0.0.0",
-        "changelog": "Initial release. Compatible with Jellyfin 10.11.x.",
+        "version": "1.0.0.1",
+        "changelog": "Package metadata update. Whitelists the plugin assembly so Jellyfin loads only PhysicalReleaseGuard.dll.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/plugin/PhysicalReleaseGuard.zip",
-        "checksum": "88ed9e58c4e21b2f76b40c74283c67ad",
+        "checksum": "b8b22fc266f4e07638359ae473cb4965",
         "timestamp": "2026-06-09T00:00:00Z"
       }
     ]
