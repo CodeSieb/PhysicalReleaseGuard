@@ -1,19 +1,23 @@
 # Physical Release Guard for Jellyfin
 
-A Jellyfin plugin that automatically manages a `Hidden` tag for movies based on [TMDb](https://www.themoviedb.org/) physical release data.
+A Jellyfin plugin that automatically manages a `Hidden` tag for movies and series based on [TMDb](https://www.themoviedb.org/) physical release data.
 
 ## How It Works
 
-For every **movie** in your Jellyfin library:
+For every **movie** and **series** in your Jellyfin library:
 
 | Condition | Result |
 |---|---|
-| TMDb physical release exists | No `Hidden` tag |
-| TMDb movie data exists, but no physical release | Add `Hidden` tag |
-| No TMDb data for the movie | No change |
-| TV series / non-movie content | Ignored |
+| Movie has a TMDb physical release | No `Hidden` tag |
+| Movie has TMDb data, but no physical release | Add `Hidden` tag |
+| Series has TMDb DVD/physical episode-group evidence | No `Hidden` tag |
+| Series has TMDb data, but no DVD/physical episode-group evidence | Add `Hidden` tag |
+| No TMDb data for the item | No change |
+| Non-movie / non-series content | Ignored |
 
-The plugin uses TMDb release type **5** (Physical) to determine whether a physical release exists. Digital and streaming releases are ignored.
+For movies, the plugin uses TMDb release type **5** (Physical) to determine whether a physical release exists. Digital and streaming releases are ignored.
+
+TMDb does not expose an equivalent physical-release endpoint for TV series. For series, the plugin checks TMDb TV episode groups and treats DVD/physical-style groups as evidence of a physical release.
 
 ## Installation
 
@@ -69,9 +73,11 @@ By default, the plugin runs a daily scan at 3:00 AM. You can adjust this in **Da
 
 The plugin logs every decision:
 
-- `Physical release found for 'MovieName' ... Removed 'Hidden' tag.`
-- `No physical release for 'MovieName' ... Added 'Hidden' tag.`
-- `No TMDb data found for movie: MovieName. No changes made.`
+- `Physical release found for movie 'MovieName' ... Removed 'Hidden' tag.`
+- `No physical release for movie 'MovieName' ... Added 'Hidden' tag.`
+- `Physical release found for series 'SeriesName' ... Removed 'Hidden' tag.`
+- `No physical release for series 'SeriesName' ... Added 'Hidden' tag.`
+- `No TMDb data found for movie/series ... No changes made.`
 - `Could not retrieve release data from TMDb ... No changes made.`
 
 ## License

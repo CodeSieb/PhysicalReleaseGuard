@@ -21,7 +21,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     public override string Name => "Physical Release Guard";
 
-    public override string Description => "Automatically manages a 'Hidden' tag for movies based on TMDb physical release data.";
+    public override string Description => "Automatically manages a 'Hidden' tag for movies and series based on TMDb physical release data.";
 
     public IEnumerable<PluginPageInfo> GetPages()
     {

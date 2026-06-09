@@ -2,6 +2,7 @@ using Jellyfin.Data.Enums;
 using PhysicalReleaseGuard.Services;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
@@ -9,7 +10,7 @@ using Microsoft.Extensions.Logging;
 namespace PhysicalReleaseGuard.Tasks;
 
 /// <summary>
-/// Scheduled task that scans all movies in the library and applies
+/// Scheduled task that scans movies and series in the library and applies
 /// the "Hidden" tag based on TMDb physical release data.
 /// Can be triggered manually from the Jellyfin Dashboard or run on a schedule.
 /// </summary>
@@ -33,7 +34,7 @@ public class HiddenTagScanTask : IScheduledTask
 
     public string Key => "PhysicalReleaseGuardScan";
 
-    public string Description => "Scans all movies in the library and manages the 'Hidden' tag based on TMDb physical release data.";
+    public string Description => "Scans movies and series in the library and manages the 'Hidden' tag based on TMDb physical release data.";
 
     public string Category => "Plugins";
 
@@ -60,15 +61,14 @@ public class HiddenTagScanTask : IScheduledTask
             return;
         }
 
-        var movies = GetMovies();
-        var movieList = movies.ToList();
-        var total = movieList.Count;
+        var itemList = GetItemsToProcess();
+        var total = itemList.Count;
 
-        _logger.LogInformation("Found {MovieCount} movies to process.", total);
+        _logger.LogInformation("Found {ItemCount} movies/series to process.", total);
 
         if (total == 0)
         {
-            _logger.LogInformation("No movies found in library. Scan complete.");
+            _logger.LogInformation("No movies or series found in library. Scan complete.");
             progress.Report(100);
             return;
         }
@@ -77,15 +77,13 @@ public class HiddenTagScanTask : IScheduledTask
         var modified = 0;
         var skipped = 0;
 
-        foreach (var movie in movieList)
+        foreach (var item in itemList)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
             try
             {
-                var wasModified = await _hiddenTagService
-                    .ProcessMovieAsync(movie, cancellationToken)
-                    .ConfigureAwait(false);
+                var wasModified = await ProcessItemAsync(item, cancellationToken).ConfigureAwait(false);
 
                 if (wasModified)
                 {
@@ -98,7 +96,7 @@ public class HiddenTagScanTask : IScheduledTask
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error processing movie: {Name}", movie.Name);
+                _logger.LogError(ex, "Error processing item: {Name}", item.Name);
                 skipped++;
             }
 
@@ -116,15 +114,27 @@ public class HiddenTagScanTask : IScheduledTask
             skipped);
     }
 
-    private IEnumerable<Movie> GetMovies()
+    private Task<bool> ProcessItemAsync(BaseItem item, CancellationToken cancellationToken)
+    {
+        return item switch
+        {
+            Movie movie => _hiddenTagService.ProcessMovieAsync(movie, cancellationToken),
+            Series series => _hiddenTagService.ProcessSeriesAsync(series, cancellationToken),
+            _ => Task.FromResult(false)
+        };
+    }
+
+    private IReadOnlyList<BaseItem> GetItemsToProcess()
     {
         var query = new InternalItemsQuery
         {
-            IncludeItemTypes = new[] { BaseItemKind.Movie },
+            IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Series },
             Recursive = true,
             IsVirtualItem = false
         };
 
-        return _libraryManager.GetItemList(query).OfType<Movie>();
+        return _libraryManager.GetItemList(query)
+            .Where(item => item is Movie or Series)
+            .ToList();
     }
 }
