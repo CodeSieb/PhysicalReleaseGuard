@@ -22,20 +22,33 @@ The plugin uses TMDb release type **5** (Physical) to determine whether a physic
 - Jellyfin server **10.11.x**
 - A free [TMDb API key](https://www.themoviedb.org/settings/api)
 
-### Build from source
+### Via Plugin Repository (Recommended)
+
+1. In Jellyfin, go to **Dashboard → Plugins → Repositories**
+2. Click the **+** button and add this repository URL:
+   ```
+   https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/manifest.json
+   ```
+3. Go to **Catalog**, find **Physical Release Guard**, and click **Install**
+4. Restart Jellyfin
+5. Go to **Dashboard → Plugins → Physical Release Guard** and enter your TMDb API key
+
+### Manual Install
+
+#### Build from source
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/PhysicalReleaseGuard.git
+git clone https://github.com/CodeSieb/PhysicalReleaseGuard.git
 cd PhysicalReleaseGuard
 dotnet restore
 dotnet build -c Release
 ```
 
-> ⚠️ You'll need the [.NET 8.0 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) installed to build.
+> ⚠️ You'll need the [.NET 9.0 SDK](https://dotnet.microsoft.com/download/dotnet/9.0) installed to build.
 
-The compiled `PhysicalReleaseGuard.dll` will be in `PhysicalReleaseGuard/bin/Release/net8.0/`.
+The compiled `PhysicalReleaseGuard.dll` will be in `PhysicalReleaseGuard/bin/Release/net9.0/`.
 
-### Install in Jellyfin
+#### Install in Jellyfin
 
 1. Copy the built `PhysicalReleaseGuard.dll` to your Jellyfin `plugins/PhysicalReleaseGuard/` directory
 2. Restart Jellyfin
