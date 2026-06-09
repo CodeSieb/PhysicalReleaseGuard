@@ -12,7 +12,7 @@
         "changelog": "Initial release. Compatible with Jellyfin 10.11.x.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/plugin/PhysicalReleaseGuard.zip",
-        "checksum": "3daa4cb1c8d736cda44217999f2e5481",
+        "checksum": "b63ac744b8592bff50e1595644b12909",
         "timestamp": "2026-06-09T00:00:00Z"
       }
     ]

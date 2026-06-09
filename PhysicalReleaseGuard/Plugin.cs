@@ -35,6 +35,14 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         };
     }
 
+    /// <inheritdoc />
+    public override PluginInfo GetPluginInfo()
+    {
+        var info = base.GetPluginInfo();
+        info.ConfigurationFileName = "PhysicalReleaseGuard.xml";
+        return info;
+    }
+
     /// <summary>
     /// Checks whether a TMDb API key is configured.
     /// </summary>
