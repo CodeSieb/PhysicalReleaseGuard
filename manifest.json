@@ -8,12 +8,12 @@
     "category": "General",
     "versions": [
       {
-        "version": "1.2.0.0",
-        "changelog": "Adds configurable library exclusions so selected libraries are skipped and left untouched by the Hidden tag scan.",
+        "version": "1.3.0.0",
+        "changelog": "Adds configurable movie and series exclusions so selected titles are skipped and left untouched by the Hidden tag scan.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/plugin/PhysicalReleaseGuard.zip",
-        "checksum": "5a069b42eb5a892fb688d487d91094f8",
-        "timestamp": "2026-06-09T00:00:00Z"
+        "checksum": "e0a3506a34f7ef8c87030d7075fe6681",
+        "timestamp": "2026-06-10T00:00:00Z"
       }
     ]
   }
