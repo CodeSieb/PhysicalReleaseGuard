@@ -31,6 +31,17 @@
                         Selected libraries are skipped entirely by the scheduled scan. Items in those libraries will not have the <code>Hidden</code> tag added or removed by this plugin.
                     </div>
                     <br />
+                    <div class="sectionTitleContainer">
+                        <h2 class="sectionTitle">Excluded Movies and Series</h2>
+                    </div>
+                    <div class="inputContainer">
+                        <input is="emby-input" id="txtItemFilter" type="text" label="Filter movies and series" />
+                    </div>
+                    <div id="itemExclusionsContainer" class="checkboxListContainer" style="max-height: 28em; overflow-y: auto;"></div>
+                    <div class="fieldDescription">
+                        Selected movies and series are skipped entirely by the scheduled scan. The plugin will not add or remove the <code>Hidden</code> tag for those items.
+                    </div>
+                    <br />
                     <button is="emby-button" type="submit" class="raised button-submit block">
                         <span>Save</span>
                     </button>
@@ -42,6 +53,7 @@
             var pluginId = "A7B3C9E1-4F2D-4E8B-9A6C-1D3F5E7B9A0C";
             var page = document.querySelector('#PhysicalReleaseGuardConfigPage');
             var librariesLoaded = false;
+            var itemsLoaded = false;
 
             function getVirtualFolders() {
                 if (ApiClient.getVirtualFolders) {
@@ -61,6 +73,92 @@
 
             function getLibraryName(library) {
                 return (library.Name || library.name || "").toString();
+            }
+
+            function getMediaItems() {
+                var query = {
+                    Recursive: true,
+                    IncludeItemTypes: "Movie,Series",
+                    Fields: "ProductionYear",
+                    SortBy: "SortName",
+                    SortOrder: "Ascending",
+                    Limit: 10000
+                };
+                var userId = ApiClient.getCurrentUserId
+                    ? ApiClient.getCurrentUserId()
+                    : (Dashboard.getCurrentUserId ? Dashboard.getCurrentUserId() : null);
+
+                if (ApiClient.getItems && userId) {
+                    return ApiClient.getItems(userId, query);
+                }
+
+                return ApiClient.getJSON(ApiClient.getUrl("Items", query));
+            }
+
+            function getItemsFromResult(result) {
+                if (!result) {
+                    return [];
+                }
+
+                if (Array.isArray(result)) {
+                    return result;
+                }
+
+                return result.Items || result.items || [];
+            }
+
+            function getItemId(item) {
+                return (item.Id || item.id || item.ItemId || item.itemId || "").toString();
+            }
+
+            function normalizeItemId(itemId) {
+                return (itemId || "").toString().replace(/-/g, "").toLowerCase();
+            }
+
+            function getItemType(item) {
+                return (item.Type || item.type || "").toString();
+            }
+
+            function getItemName(item) {
+                return (item.Name || item.name || "").toString();
+            }
+
+            function getItemProductionYear(item) {
+                var year = item.ProductionYear || item.productionYear || "";
+                return year ? year.toString() : "";
+            }
+
+            function normalizeItemName(itemName) {
+                return (itemName || "").toString().trim().toLowerCase();
+            }
+
+            function getItemKey(item) {
+                var itemType = getItemType(item).toLowerCase();
+                var itemName = normalizeItemName(getItemName(item));
+                var productionYear = getItemProductionYear(item);
+
+                if (!itemType || !itemName) {
+                    return "";
+                }
+
+                return [itemType, itemName, productionYear].join("|");
+            }
+
+            function getItemLabel(item) {
+                var name = getItemName(item);
+                var type = getItemType(item);
+                var year = getItemProductionYear(item);
+                var suffix = [];
+
+                if (year) {
+                    suffix.push(year);
+                }
+
+                if (type) {
+                    suffix.push(type);
+                }
+
+                return suffix.length ? name + " (" + suffix.join(", ") + ")" : name;
             }
 
             function createCheckbox() {
@@ -121,17 +219,87 @@
                 });
             }
 
+            function applyItemFilter() {
+                var filter = normalizeItemName(document.getElementById("txtItemFilter").value);
+                var labels = Array.prototype.slice.call(document.querySelectorAll(".itemExclusionLabel"));
+
+                labels.forEach(function (label) {
+                    var searchText = label.dataset.searchText || "";
+                    label.style.display = !filter || searchText.indexOf(filter) !== -1 ? "block" : "none";
+                });
+            }
+
+            function renderItemExclusions(config) {
+                var container = document.getElementById("itemExclusionsContainer");
+                var excludedIds = (config.ExcludedItemIds || []).map(normalizeItemId);
+                var excludedKeys = (config.ExcludedItemKeys || []).map(function (key) {
+                    return (key || "").toString().trim().toLowerCase();
+                });
+
+                itemsLoaded = false;
+                container.textContent = "Loading movies and series...";
+
+                return getMediaItems().then(function (result) {
+                    var items = getItemsFromResult(result);
+                    itemsLoaded = true;
+                    container.innerHTML = "";
+
+                    if (!items || items.length === 0) {
+                        container.textContent = "No movies or series found.";
+                        return;
+                    }
+
+                    items.forEach(function (item) {
+                        var itemId = getItemId(item);
+                        var normalizedItemId = normalizeItemId(itemId);
+                        var itemKey = getItemKey(item);
+                        var labelText = getItemLabel(item);
+
+                        var label = document.createElement("label");
+                        label.className = "checkboxContainer itemExclusionLabel";
+                        label.dataset.searchText = normalizeItemName(labelText);
+                        label.style.display = "block";
+                        label.style.margin = "0 0 .75em";
+
+                        var checkbox = createCheckbox();
+                        checkbox.type = "checkbox";
+                        checkbox.className = "itemExclusionCheckbox";
+                        checkbox.dataset.itemId = itemId;
+                        checkbox.dataset.itemKey = itemKey;
+                        checkbox.checked = excludedIds.indexOf(normalizedItemId) !== -1 ||
+                            excludedKeys.indexOf(itemKey) !== -1;
+
+                        var text = document.createElement("span");
+                        text.textContent = labelText;
+
+                        label.appendChild(checkbox);
+                        label.appendChild(text);
+                        container.appendChild(label);
+                    });
+
+                    applyItemFilter();
+                }).catch(function () {
+                    container.textContent = "Could not load movies and series. Existing exclusions will be preserved when saving.";
+                });
+            }
+
             page.addEventListener("pageshow", function () {
                 Dashboard.showLoadingMsg();
                 ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                     document.getElementById("txtTmdbApiKey").value = config.TmdbApiKey || "";
-                    return renderLibraryExclusions(config);
+                    document.getElementById("txtItemFilter").value = "";
+                    return Promise.all([
+                        renderLibraryExclusions(config),
+                        renderItemExclusions(config)
+                    ]);
                 }).then(function () {
                     Dashboard.hideLoadingMsg();
                 }).catch(function () {
                     Dashboard.hideLoadingMsg();
                 });
             });
+
+            document.getElementById("txtItemFilter").addEventListener("input", applyItemFilter);
 
             document.querySelector(".pluginConfigurationForm").addEventListener("submit", function (e) {
                 e.preventDefault();
@@ -151,6 +319,19 @@
                         config.ExcludedLibraryNames = checkedLibraries
                             .map(function (checkbox) { return checkbox.dataset.libraryName; })
                             .filter(function (libraryName) { return !!libraryName; });
+                    }
+
+                    if (itemsLoaded) {
+                        var checkedItems = Array.prototype.slice.call(
+                            document.querySelectorAll(".itemExclusionCheckbox:checked"));
+
+                        config.ExcludedItemIds = checkedItems
+                            .map(function (checkbox) { return checkbox.dataset.itemId; })
+                            .filter(function (itemId) { return !!itemId; });
+
+                        config.ExcludedItemKeys = checkedItems
+                            .map(function (checkbox) { return checkbox.dataset.itemKey; })
+                            .filter(function (itemKey) { return !!itemKey; });
                     }
 
                     ApiClient.updatePluginConfiguration(pluginId, config).then(function (result) {

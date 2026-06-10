@@ -13,6 +13,7 @@ For every **movie** and **series** in your Jellyfin library:
 | Series has TMDb DVD/physical episode-group evidence | No `Hidden` tag |
 | Series has TMDb data, but no DVD/physical episode-group evidence | Add `Hidden` tag |
 | Item is in an excluded library | No change |
+| Item is explicitly excluded | No change |
 | No TMDb data for the item | No change |
 | Non-movie / non-series content | Ignored |
 
@@ -69,6 +70,10 @@ Go to **Dashboard → Scheduled Tasks → Run Physical Release Guard Scan** and 
 ### Excluded libraries
 
 Go to **Dashboard → Plugins → Physical Release Guard** and select any libraries you want to exclude. Excluded libraries are skipped entirely, so the plugin will not add or remove the `Hidden` tag for items in those libraries.
+
+### Excluded movies and series
+
+Go to **Dashboard → Plugins → Physical Release Guard** and select individual movies or series you want to exclude. Excluded items are skipped entirely, so the plugin will not add or remove the `Hidden` tag for those titles.
 
 ### Scheduled scan
 

@@ -19,4 +19,15 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Used as a fallback if a library ID is unavailable.
     /// </summary>
     public string[] ExcludedLibraryNames { get; set; } = Array.Empty<string>();
+
+    /// <summary>
+    /// Gets or sets the Jellyfin movie and series IDs that should be skipped by the scan.
+    /// </summary>
+    public string[] ExcludedItemIds { get; set; } = Array.Empty<string>();
+
+    /// <summary>
+    /// Gets or sets normalized movie and series keys that should be skipped by the scan.
+    /// Used as a fallback if an item ID is unavailable.
+    /// </summary>
+    public string[] ExcludedItemKeys { get; set; } = Array.Empty<string>();
 }

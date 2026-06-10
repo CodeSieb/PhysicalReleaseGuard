@@ -129,6 +129,8 @@ public class HiddenTagScanTask : IScheduledTask
     {
         var excludedLibraryIds = GetExcludedLibraryIds();
         var excludedLibraryNames = GetExcludedLibraryNames();
+        var excludedItemIds = GetExcludedItemIds();
+        var excludedItemKeys = GetExcludedItemKeys();
 
         var query = new InternalItemsQuery
         {
@@ -141,22 +143,63 @@ public class HiddenTagScanTask : IScheduledTask
             .Where(item => item is Movie or Series)
             .ToList();
 
-        if (excludedLibraryIds.Count == 0 && excludedLibraryNames.Count == 0)
+        if (excludedLibraryIds.Count == 0 &&
+            excludedLibraryNames.Count == 0 &&
+            excludedItemIds.Count == 0 &&
+            excludedItemKeys.Count == 0)
         {
             return items;
         }
 
-        var includedItems = items
-            .Where(item => !IsInExcludedLibrary(item, excludedLibraryIds, excludedLibraryNames))
-            .ToList();
+        var libraryFilteredItems = excludedLibraryIds.Count == 0 && excludedLibraryNames.Count == 0
+            ? items
+            : items
+                .Where(item => !IsInExcludedLibrary(item, excludedLibraryIds, excludedLibraryNames))
+                .ToList();
 
-        var skippedCount = items.Count - includedItems.Count;
+        var includedItems = excludedItemIds.Count == 0 && excludedItemKeys.Count == 0
+            ? libraryFilteredItems
+            : libraryFilteredItems
+                .Where(item => !IsExcludedItem(item, excludedItemIds, excludedItemKeys))
+                .ToList();
+
+        var skippedLibraryCount = items.Count - libraryFilteredItems.Count;
+        var skippedItemCount = libraryFilteredItems.Count - includedItems.Count;
         _logger.LogInformation(
-            "Skipped {SkippedCount} items from excluded libraries. Processing {IncludedCount} remaining items.",
-            skippedCount,
+            "Skipped {SkippedLibraryCount} items from excluded libraries and {SkippedItemCount} explicitly excluded items. Processing {IncludedCount} remaining items.",
+            skippedLibraryCount,
+            skippedItemCount,
             includedItems.Count);
 
         return includedItems;
+    }
+
+    private bool IsExcludedItem(
+        BaseItem item,
+        ISet<string> excludedItemIds,
+        ISet<string> excludedItemKeys)
+    {
+        var normalizedItemId = NormalizeItemId(item.Id.ToString("N"));
+        if (!string.IsNullOrWhiteSpace(normalizedItemId) && excludedItemIds.Contains(normalizedItemId))
+        {
+            _logger.LogDebug(
+                "Skipping '{Name}' because the item ({ItemId}) is explicitly excluded.",
+                item.Name,
+                normalizedItemId);
+            return true;
+        }
+
+        var itemKey = CreateItemKey(item);
+        if (!string.IsNullOrWhiteSpace(itemKey) && excludedItemKeys.Contains(itemKey))
+        {
+            _logger.LogDebug(
+                "Skipping '{Name}' because the item key '{ItemKey}' is explicitly excluded.",
+                item.Name,
+                itemKey);
+            return true;
+        }
+
+        return false;
     }
 
     private bool IsInExcludedLibrary(
@@ -210,6 +253,41 @@ public class HiddenTagScanTask : IScheduledTask
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
+    private static HashSet<string> GetExcludedItemIds()
+    {
+        return (Plugin.Instance?.Configuration.ExcludedItemIds ?? Array.Empty<string>())
+            .Select(NormalizeItemId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static HashSet<string> GetExcludedItemKeys()
+    {
+        return (Plugin.Instance?.Configuration.ExcludedItemKeys ?? Array.Empty<string>())
+            .Select(NormalizeConfiguredItemKey)
+            .Where(key => !string.IsNullOrWhiteSpace(key))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static string CreateItemKey(BaseItem item)
+    {
+        var itemType = item switch
+        {
+            Movie => "movie",
+            Series => "series",
+            _ => item.GetType().Name.ToLower(CultureInfo.InvariantCulture)
+        };
+        var itemName = NormalizeItemName(item.Name);
+        var productionYear = item.ProductionYear?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
+
+        if (string.IsNullOrWhiteSpace(itemType) || string.IsNullOrWhiteSpace(itemName))
+        {
+            return string.Empty;
+        }
+
+        return string.Join("|", itemType, itemName, productionYear);
+    }
+
     private static string NormalizeLibraryId(string? libraryId)
     {
         if (string.IsNullOrWhiteSpace(libraryId))
@@ -221,5 +299,38 @@ public class HiddenTagScanTask : IScheduledTask
             .Trim()
             .Replace("-", string.Empty, StringComparison.Ordinal)
             .ToLower(CultureInfo.InvariantCulture);
+    }
+
+    private static string NormalizeItemId(string? itemId)
+    {
+        if (string.IsNullOrWhiteSpace(itemId))
+        {
+            return string.Empty;
+        }
+
+        return itemId
+            .Trim()
+            .Replace("-", string.Empty, StringComparison.Ordinal)
+            .ToLower(CultureInfo.InvariantCulture);
+    }
+
+    private static string NormalizeConfiguredItemKey(string? itemKey)
+    {
+        if (string.IsNullOrWhiteSpace(itemKey))
+        {
+            return string.Empty;
+        }
+
+        return itemKey.Trim().ToLower(CultureInfo.InvariantCulture);
+    }
+
+    private static string NormalizeItemName(string? itemName)
+    {
+        if (string.IsNullOrWhiteSpace(itemName))
+        {
+            return string.Empty;
+        }
+
+        return itemName.Trim().ToLower(CultureInfo.InvariantCulture);
     }
 }
