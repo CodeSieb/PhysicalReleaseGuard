@@ -12,7 +12,7 @@
         "changelog": "Prevents concurrent library scans. Scan Now buttons disable while a scan is running and re-enable when it completes.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/plugin/PhysicalReleaseGuard.zip",
-        "checksum": "0b028f97f0170bff599f70584a5df63b",
+        "checksum": "93c8f4e4272dd156d29c35bd45594479",
         "timestamp": "2026-06-12T00:00:00Z"
       },
       {
