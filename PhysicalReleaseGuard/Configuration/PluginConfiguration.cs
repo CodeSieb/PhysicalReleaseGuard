@@ -30,4 +30,10 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Used as a fallback if an item ID is unavailable.
     /// </summary>
     public string[] ExcludedItemKeys { get; set; } = Array.Empty<string>();
+
+    /// <summary>
+    /// Gets or sets the tag name that the plugin manages.
+    /// Defaults to "Hidden".
+    /// </summary>
+    public string TagName { get; set; } = "Hidden";
 }

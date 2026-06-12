@@ -24,11 +24,22 @@
                     </div>
                     <br />
                     <div class="sectionTitleContainer">
+                        <h2 class="sectionTitle">Tag Name</h2>
+                    </div>
+                    <div class="inputContainer">
+                        <input is="emby-input" id="txtTagName" type="text" label="Tag to manage" />
+                        <div class="fieldDescription">
+                            The name of the tag this plugin adds or removes based on physical release status.
+                            Defaults to <code>Hidden</code>.
+                        </div>
+                    </div>
+                    <br />
+                    <div class="sectionTitleContainer">
                         <h2 class="sectionTitle">Excluded Libraries</h2>
                     </div>
                     <div id="libraryExclusionsContainer" class="checkboxListContainer"></div>
                     <div class="fieldDescription">
-                        Selected libraries are skipped entirely by the scheduled scan. Items in those libraries will not have the <code>Hidden</code> tag added or removed by this plugin.
+                        Selected libraries are skipped entirely by the scheduled scan. Items in those libraries will not have the configured tag added or removed by this plugin.
                     </div>
                     <br />
                     <div class="sectionTitleContainer">
@@ -39,7 +50,7 @@
                     </div>
                     <div id="itemExclusionsContainer" class="checkboxListContainer" style="max-height: 28em; overflow-y: auto;"></div>
                     <div class="fieldDescription">
-                        Selected movies and series are skipped entirely by the scheduled scan. The plugin will not add or remove the <code>Hidden</code> tag for those items.
+                        Selected movies and series are skipped entirely by the scheduled scan. The plugin will not add or remove the configured tag for those items.
                     </div>
                     <br />
                     <button is="emby-button" type="submit" class="raised button-submit block">
@@ -287,6 +298,7 @@
                 Dashboard.showLoadingMsg();
                 ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                     document.getElementById("txtTmdbApiKey").value = config.TmdbApiKey || "";
+                    document.getElementById("txtTagName").value = config.TagName || "Hidden";
                     document.getElementById("txtItemFilter").value = "";
                     return Promise.all([
                         renderLibraryExclusions(config),
@@ -307,6 +319,7 @@
 
                 ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                     config.TmdbApiKey = document.getElementById("txtTmdbApiKey").value;
+                    config.TagName = document.getElementById("txtTagName").value || "Hidden";
 
                     if (librariesLoaded) {
                         var checkedLibraries = Array.prototype.slice.call(

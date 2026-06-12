@@ -32,8 +32,6 @@ public class HiddenTagService : IHiddenTagService
     private readonly ITmdbService _tmdbService;
     private readonly ILogger<HiddenTagService> _logger;
 
-    private const string HiddenTag = "Hidden";
-
     public HiddenTagService(
         ITmdbService tmdbService,
         ILogger<HiddenTagService> logger)
@@ -114,8 +112,9 @@ public class HiddenTagService : IHiddenTagService
             return false;
         }
 
+        var tagName = GetTagName();
         var currentTags = item.Tags ?? Array.Empty<string>();
-        var hasHiddenTag = currentTags.Contains(HiddenTag, StringComparer.OrdinalIgnoreCase);
+        var hasHiddenTag = currentTags.Contains(tagName, StringComparer.OrdinalIgnoreCase);
 
         if (hasPhysicalRelease.Value)
         {
@@ -123,46 +122,56 @@ public class HiddenTagService : IHiddenTagService
             if (hasHiddenTag)
             {
                 item.Tags = currentTags
-                    .Where(t => !string.Equals(t, HiddenTag, StringComparison.OrdinalIgnoreCase))
+                    .Where(t => !string.Equals(t, tagName, StringComparison.OrdinalIgnoreCase))
                     .ToArray();
                 await SaveItemAsync(item, cancellationToken).ConfigureAwait(false);
                 _logger.LogInformation(
-                    "Physical release found for {ItemType} '{Name}' (TMDb ID: {TmdbId}). Removed 'Hidden' tag.",
+                    "Physical release found for {ItemType} '{Name}' (TMDb ID: {TmdbId}). Removed '{TagName}' tag.",
                     itemType,
                     item.Name,
-                    tmdbId.Value);
+                    tmdbId.Value,
+                    tagName);
                 return true;
             }
 
             _logger.LogInformation(
-                "Physical release found for {ItemType} '{Name}' (TMDb ID: {TmdbId}). 'Hidden' tag not present — no change needed.",
+                "Physical release found for {ItemType} '{Name}' (TMDb ID: {TmdbId}). '{TagName}' tag not present — no change needed.",
                 itemType,
                 item.Name,
-                tmdbId.Value);
+                tmdbId.Value,
+                tagName);
             return false;
         }
         else
         {
-            // No physical release → add the Hidden tag if not present
+            // No physical release → add the tag if not present
             if (!hasHiddenTag)
             {
-                item.Tags = currentTags.Concat(new[] { HiddenTag }).ToArray();
+                item.Tags = currentTags.Concat(new[] { tagName }).ToArray();
                 await SaveItemAsync(item, cancellationToken).ConfigureAwait(false);
                 _logger.LogInformation(
-                    "No physical release for {ItemType} '{Name}' (TMDb ID: {TmdbId}). Added 'Hidden' tag.",
+                    "No physical release for {ItemType} '{Name}' (TMDb ID: {TmdbId}). Added '{TagName}' tag.",
                     itemType,
                     item.Name,
-                    tmdbId.Value);
+                    tmdbId.Value,
+                    tagName);
                 return true;
             }
 
             _logger.LogInformation(
-                "No physical release for {ItemType} '{Name}' (TMDb ID: {TmdbId}). 'Hidden' tag already present — no change needed.",
+                "No physical release for {ItemType} '{Name}' (TMDb ID: {TmdbId}). '{TagName}' tag already present — no change needed.",
                 itemType,
                 item.Name,
-                tmdbId.Value);
+                tmdbId.Value,
+                tagName);
             return false;
         }
+    }
+
+    private static string GetTagName()
+    {
+        var tagName = Plugin.Instance?.Configuration.TagName;
+        return !string.IsNullOrWhiteSpace(tagName) ? tagName : "Hidden";
     }
 
     private static int? GetTmdbIdFromProviderIds(BaseItem item)

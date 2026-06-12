@@ -2,8 +2,8 @@
   {
     "guid": "a7b3c9e1-4f2d-4e8b-9a6c-1d3f5e7b9a0c",
     "name": "Physical Release Guard",
-    "description": "Automatically manages a 'Hidden' tag for movies and series based on TMDb physical release data.",
-    "overview": "Scans your movie and series libraries and adds or removes a 'Hidden' tag based on whether a physical release exists according to TMDb data. Movies use TMDb physical release dates; series use TMDb DVD/physical episode-group evidence.",
+    "description": "Automatically manages a configurable tag for movies and series based on TMDb physical release data.",
+    "overview": "Scans your movie and series libraries and adds or removes a configurable tag based on whether a physical release exists according to TMDb data. Movies use TMDb physical release dates; series use TMDb DVD/physical episode-group evidence.",
     "owner": "CodeSieb",
     "category": "General",
     "versions": [
@@ -14,6 +14,14 @@
         "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/plugin/PhysicalReleaseGuard.zip",
         "checksum": "e0a3506a34f7ef8c87030d7075fe6681",
         "timestamp": "2026-06-10T00:00:00Z"
+      },
+      {
+        "version": "1.4.0.0",
+        "changelog": "Adds configurable tag name so users can choose which tag the plugin manages instead of the hardcoded 'Hidden' tag.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/plugin/PhysicalReleaseGuard.zip",
+        "checksum": "fc0e0fb6371f405197399791517711ac",
+        "timestamp": "2026-06-12T00:00:00Z"
       }
     ]
   }
