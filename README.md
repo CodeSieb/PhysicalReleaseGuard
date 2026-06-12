@@ -2,6 +2,10 @@
 
 A Jellyfin plugin that automatically manages a `Hidden` tag for movies and series based on [TMDb](https://www.themoviedb.org/) physical release data.
 
+## Why Would I Want This?
+
+If you add movies/series to Jellyfin as soon as they're announced (e.g. via Sonarr/Radarr), they show up in your library immediately even though they aren't physically available to buy or watch yet. This plugin automatically hides those titles by tagging them with a 'Hidden' tag, keeping your library clean. When the physical release drops, the 'Hidden' tag is removed automatically, no manual cleanup needed.
+
 ## How It Works
 
 For every **movie** and **series** in your Jellyfin library:
@@ -75,6 +79,9 @@ Go to **Dashboard → Plugins → Physical Release Guard** and select any librar
 
 Go to **Dashboard → Plugins → Physical Release Guard** and select individual movies or series you want to exclude. Excluded items are skipped entirely, so the plugin will not add or remove the `Hidden` tag for those titles.
 
+> [!NOTE]
+> The `Hidden` tag only hides items from a user's library view if it is blocked in that user's **Parental Control** settings. Go to **Dashboard → Users → [user] → Parental Control** and add `Hidden` to the blocked tags list. Otherwise the tag is metadata-only and will not affect visibility.
+
 ### Scheduled scan
 
 By default, the plugin runs a daily scan at 3:00 AM. You can adjust this in **Dashboard → Scheduled Tasks → Run Physical Release Guard Scan → Triggers**.
@@ -89,6 +96,32 @@ The plugin logs every decision:
 - `No physical release for series 'SeriesName' ... Added 'Hidden' tag.`
 - `No TMDb data found for movie/series ... No changes made.`
 - `Could not retrieve release data from TMDb ... No changes made.`
+
+## Troubleshooting
+
+### Nothing happened after installing
+
+Trigger a manual scan at **Dashboard → Scheduled Tasks → Run Physical Release Guard Scan** and click the play button. The scheduled scan runs daily at 3:00 AM by default.
+
+### Items are still visible when they should be hidden
+
+First, check that the item is not in an **excluded library** or on the **excluded items** list. If it isn't excluded, verify that TMDb has physical release data for that title — the plugin only acts on items where TMDb data is found. Also check the **Parental Control** note above.
+
+### Hidden tag is set but items are still showing
+
+The `Hidden` tag must be blocked in each user's **Parental Control** settings to actually hide items. See the note under [Excluded movies and series](#excluded-movies-and-series).
+
+### API key is not working
+
+Verify your TMDb API key is valid at [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api) and that it is entered correctly in **Dashboard → Plugins → Physical Release Guard**. You can also set the `TMDbApiKey` environment variable as an alternative.
+
+### Scan is slow
+
+On large libraries the scan can take a while. It runs in the background, so you can continue using Jellyfin normally while it processes.
+
+## Contributing
+
+Contributions are welcome! Feel free to open an issue or submit a pull request on [GitHub](https://github.com/CodeSieb/PhysicalReleaseGuard).
 
 ## License
 
