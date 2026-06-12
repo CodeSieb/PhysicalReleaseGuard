@@ -12,7 +12,7 @@
         "changelog": "Adds configurable scan schedule UI, dry-run mode for previewing changes, and preferred region filtering for TMDb physical releases.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/plugin/PhysicalReleaseGuard.zip",
-        "checksum": "00000000000000000000000000000000",
+        "checksum": "f920dc88d42e0b764cd3ec5c1627d10c",
         "timestamp": "2026-06-12T00:00:00Z"
       },
       {
