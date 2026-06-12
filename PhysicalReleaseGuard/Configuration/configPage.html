@@ -48,6 +48,42 @@
                     </div>
                     <br />
                     <div class="sectionTitleContainer">
+                        <h2 class="sectionTitle">Scan Schedule</h2>
+                    </div>
+                    <div class="selectContainer">
+                        <select is="emby-select" id="selScanHour" label="Run scan at hour">
+                        </select>
+                        <div class="fieldDescription">
+                            The hour of day when the scheduled scan runs. Changes are applied when you click Save.
+                        </div>
+                    </div>
+                    <br />
+                    <div class="sectionTitleContainer">
+                        <h2 class="sectionTitle">Dry-Run Mode</h2>
+                    </div>
+                    <div class="checkboxContainer">
+                        <label>
+                            <input is="emby-checkbox" id="chkDryRunEnabled" type="checkbox" />
+                            <span>Enable dry-run mode (log only, do not modify tags)</span>
+                        </label>
+                        <div class="fieldDescription">
+                            When enabled, scans will log what they would do without actually adding or removing tags. Useful for previewing changes before committing them. Auto-scan for new items is not affected.
+                        </div>
+                    </div>
+                    <br />
+                    <div class="sectionTitleContainer">
+                        <h2 class="sectionTitle">Preferred Region</h2>
+                    </div>
+                    <div class="selectContainer">
+                        <select is="emby-select" id="selPreferredRegion" label="Filter physical releases by country">
+                            <option value="">All countries (default)</option>
+                        </select>
+                        <div class="fieldDescription">
+                            When set, only physical releases in the selected country are considered. Leave on "All countries" to check worldwide release data. The list is populated from TMDb. Changes are applied when you click Save.
+                        </div>
+                    </div>
+                    <br />
+                    <div class="sectionTitleContainer">
                         <h2 class="sectionTitle">Libraries</h2>
                     </div>
                     <div id="libraryConfigContainer"></div>
@@ -78,6 +114,60 @@
             var page = document.querySelector('#PhysicalReleaseGuardConfigPage');
             var librariesLoaded = false;
             var itemsLoaded = false;
+            var countriesLoaded = false;
+
+            function populateScanHourDropdown() {
+                var select = document.getElementById("selScanHour");
+                select.innerHTML = "";
+                for (var h = 0; h < 24; h++) {
+                    var option = document.createElement("option");
+                    option.value = h;
+                    var period = h < 12 ? "AM" : "PM";
+                    var displayHour = h === 0 ? 12 : (h > 12 ? h - 12 : h);
+                    option.textContent = displayHour + ":00 " + period;
+                    select.appendChild(option);
+                }
+            }
+
+            function loadCountries() {
+                var select = document.getElementById("selPreferredRegion");
+                countriesLoaded = false;
+
+                return ApiClient.getJSON(
+                    ApiClient.getUrl("PhysicalReleaseGuard/Countries")
+                ).then(function (countries) {
+                    countriesLoaded = true;
+                    // Keep the default option, remove the rest
+                    select.innerHTML = "";
+                    var defaultOpt = document.createElement("option");
+                    defaultOpt.value = "";
+                    defaultOpt.textContent = "All countries (default)";
+                    select.appendChild(defaultOpt);
+
+                    if (!countries || countries.length === 0) return;
+
+                    // Sort by English name
+                    countries.sort(function (a, b) {
+                        return (a.EnglishName || "").localeCompare(b.EnglishName || "");
+                    });
+
+                    countries.forEach(function (c) {
+                        var opt = document.createElement("option");
+                        opt.value = c.Iso3166_1 || c.iso3166_1 || "";
+                        var engName = c.EnglishName || c.english_name || "";
+                        var code = opt.value;
+                        opt.textContent = engName + " (" + code + ")";
+                        select.appendChild(opt);
+                    });
+                }).catch(function () {
+                    countriesLoaded = false;
+                    select.innerHTML = "";
+                    var defaultOpt = document.createElement("option");
+                    defaultOpt.value = "";
+                    defaultOpt.textContent = "Could not load countries";
+                    select.appendChild(defaultOpt);
+                });
+            }
 
             function getVirtualFolders() {
                 if (ApiClient.getVirtualFolders) {
@@ -370,15 +460,24 @@
 
             page.addEventListener("pageshow", function () {
                 Dashboard.showLoadingMsg();
+                populateScanHourDropdown();
                 ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                     document.getElementById("txtTmdbApiKey").value = config.TmdbApiKey || "";
                     document.getElementById("txtTagName").value = config.TagName || "Hidden";
                     document.getElementById("chkAutoScanEnabled").checked = config.AutoScanEnabled === true;
+                    document.getElementById("chkDryRunEnabled").checked = config.DryRunEnabled === true;
+                    document.getElementById("selScanHour").value = (config.ScanHour != null ? config.ScanHour : 3).toString();
                     document.getElementById("txtItemFilter").value = "";
                     return Promise.all([
                         renderLibraryConfig(config),
-                        renderItemExclusions(config)
-                    ]);
+                        renderItemExclusions(config),
+                        loadCountries()
+                    ]).then(function () {
+                        // Set preferred region after countries are loaded
+                        if (countriesLoaded && config.PreferredRegion) {
+                            document.getElementById("selPreferredRegion").value = config.PreferredRegion;
+                        }
+                    });
                 }).then(function () {
                     refreshScanStatus();
                     setInterval(refreshScanStatus, 3000);
@@ -436,6 +535,9 @@
                     config.TmdbApiKey = document.getElementById("txtTmdbApiKey").value;
                     config.TagName = document.getElementById("txtTagName").value || "Hidden";
                     config.AutoScanEnabled = document.getElementById("chkAutoScanEnabled").checked;
+                    config.DryRunEnabled = document.getElementById("chkDryRunEnabled").checked;
+                    config.PreferredRegion = document.getElementById("selPreferredRegion").value || "";
+                    config.ScanHour = parseInt(document.getElementById("selScanHour").value, 10) || 3;
 
                     if (librariesLoaded) {
                         var libraryRows = Array.prototype.slice.call(
@@ -475,6 +577,22 @@
                     }
 
                     ApiClient.updatePluginConfiguration(pluginId, config).then(function (result) {
+                        // Update scheduled task triggers via Jellyfin's built-in API
+                        var scanHour = config.ScanHour || 3;
+                        var ticks = scanHour * 36000000000; // hours to .NET ticks
+                        var trigger = {
+                            type: "DailyTrigger",
+                            timeOfDayTicks: ticks
+                        };
+                        ApiClient.ajax({
+                            type: "POST",
+                            url: ApiClient.getUrl("ScheduledTasks/Tasks/PhysicalReleaseGuardScan/Triggers"),
+                            data: JSON.stringify([trigger]),
+                            contentType: "application/json"
+                        }).catch(function () {
+                            // Non-critical: schedule update failed, user can adjust in Scheduled Tasks
+                        });
+
                         Dashboard.processPluginConfigurationUpdateResult(result);
                     });
                 });

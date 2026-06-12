@@ -25,8 +25,15 @@ public interface ITmdbService
     /// <summary>
     /// Checks whether a TMDb movie has any physical release (type 5).
     /// Returns null if the movie data cannot be retrieved.
+    /// When <paramref name="region" /> is specified, only that country's releases are considered.
     /// </summary>
-    Task<bool?> HasPhysicalReleaseAsync(int tmdbId, CancellationToken cancellationToken = default);
+    Task<bool?> HasPhysicalReleaseAsync(int tmdbId, string? region = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Fetches the list of available countries from the TMDb configuration API.
+    /// Returns an empty list on failure.
+    /// </summary>
+    Task<IReadOnlyList<TmdbCountry>> GetCountriesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Checks whether a TMDb series has evidence of a physical release.
@@ -227,7 +234,7 @@ public class TmdbService : ITmdbService
     }
 
     /// <inheritdoc />
-    public async Task<bool?> HasPhysicalReleaseAsync(int tmdbId, CancellationToken cancellationToken = default)
+    public async Task<bool?> HasPhysicalReleaseAsync(int tmdbId, string? region = null, CancellationToken cancellationToken = default)
     {
         var apiKey = GetApiKey();
         if (string.IsNullOrWhiteSpace(apiKey))
@@ -240,7 +247,7 @@ public class TmdbService : ITmdbService
         {
             var url = $"https://api.themoviedb.org/3/movie/{tmdbId}/release_dates?api_key={Uri.EscapeDataString(apiKey)}";
 
-            _logger.LogDebug("Fetching release dates for TMDb ID: {TmdbId}", tmdbId);
+            _logger.LogDebug("Fetching release dates for TMDb ID: {TmdbId} (region: {Region})", tmdbId, region ?? "all");
 
             var response = await _httpClient.GetAsync(url, cancellationToken).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
@@ -254,12 +261,9 @@ public class TmdbService : ITmdbService
                 return false;
             }
 
-            // Check if any release across all countries has type 5 (Physical)
-            var hasPhysical = releaseData.Results
-                .SelectMany(r => r.ReleaseDates ?? Enumerable.Empty<TmdbReleaseDate>())
-                .Any(rd => rd.Type == PhysicalReleaseType);
+            var hasPhysical = HasPhysicalInResults(releaseData.Results, region);
 
-            _logger.LogDebug("TMDb ID {TmdbId} has physical release: {HasPhysical}", tmdbId, hasPhysical);
+            _logger.LogDebug("TMDb ID {TmdbId} has physical release: {HasPhysical} (region: {Region})", tmdbId, hasPhysical, region ?? "all");
             return hasPhysical;
         }
         catch (HttpRequestException ex)
@@ -343,6 +347,58 @@ public class TmdbService : ITmdbService
             new[] { group.Name, group.Description }.Where(value => !string.IsNullOrWhiteSpace(value)));
 
         return ContainsPhysicalReleaseKeyword(searchableText);
+    }
+
+    private static bool HasPhysicalInResults(List<TmdbReleaseDateCountry> results, string? region)
+    {
+        IEnumerable<TmdbReleaseDateCountry> filtered = results;
+
+        if (!string.IsNullOrWhiteSpace(region))
+        {
+            var normalizedRegion = region.Trim().ToUpperInvariant();
+            filtered = results.Where(r =>
+                string.Equals(r.Iso3166_1, normalizedRegion, StringComparison.OrdinalIgnoreCase));
+
+            // Only consider the preferred region — if it has no data, treat as no physical release
+            return filtered
+                .SelectMany(r => r.ReleaseDates ?? Enumerable.Empty<TmdbReleaseDate>())
+                .Any(rd => rd.Type == PhysicalReleaseType);
+        }
+
+        return results
+            .SelectMany(r => r.ReleaseDates ?? Enumerable.Empty<TmdbReleaseDate>())
+            .Any(rd => rd.Type == PhysicalReleaseType);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<TmdbCountry>> GetCountriesAsync(CancellationToken cancellationToken = default)
+    {
+        var apiKey = GetApiKey();
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            _logger.LogWarning("TMDb API key is not configured. Cannot fetch countries.");
+            return Array.Empty<TmdbCountry>();
+        }
+
+        try
+        {
+            var url = $"https://api.themoviedb.org/3/configuration/countries?api_key={Uri.EscapeDataString(apiKey)}";
+
+            _logger.LogDebug("Fetching TMDb country list.");
+
+            var response = await _httpClient.GetAsync(url, cancellationToken).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            var countries = JsonSerializer.Deserialize<List<TmdbCountry>>(content, JsonOptions.Default);
+
+            return (IReadOnlyList<TmdbCountry>)(countries ?? new List<TmdbCountry>());
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            _logger.LogError(ex, "Error fetching TMDb countries.");
+            return Array.Empty<TmdbCountry>();
+        }
     }
 
     private static bool ContainsPhysicalReleaseKeyword(string value)
@@ -514,4 +570,16 @@ internal class TmdbEpisodeGroup
 
     [JsonPropertyName("type")]
     public int Type { get; set; }
+}
+
+/// <summary>
+/// Represents a country from the TMDb configuration API.
+/// </summary>
+public class TmdbCountry
+{
+    [JsonPropertyName("iso_3166_1")]
+    public string Iso3166_1 { get; set; } = string.Empty;
+
+    [JsonPropertyName("english_name")]
+    public string EnglishName { get; set; } = string.Empty;
 }

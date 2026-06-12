@@ -46,6 +46,22 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets per-library configuration (tag name, enabled state).
     /// </summary>
     public LibraryConfig[] PerLibraryConfig { get; set; } = Array.Empty<LibraryConfig>();
+
+    /// <summary>
+    /// Gets or sets a value indicating whether scans should only log changes without actually modifying tags.
+    /// </summary>
+    public bool DryRunEnabled { get; set; } = false;
+
+    /// <summary>
+    /// Gets or sets the preferred region (ISO 3166-1 alpha-2) for filtering TMDb physical release data.
+    /// When empty, all countries are considered.
+    /// </summary>
+    public string PreferredRegion { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the hour of day (0-23) for the scheduled scan.
+    /// </summary>
+    public int ScanHour { get; set; } = 3;
 }
 
 /// <summary>

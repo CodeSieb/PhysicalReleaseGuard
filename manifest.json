@@ -8,6 +8,14 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.9.0.0",
+        "changelog": "Adds configurable scan schedule UI, dry-run mode for previewing changes, and preferred region filtering for TMDb physical releases.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/plugin/PhysicalReleaseGuard.zip",
+        "checksum": "00000000000000000000000000000000",
+        "timestamp": "2026-06-12T00:00:00Z"
+      },
+      {
         "version": "1.8.0.0",
         "changelog": "Prevents concurrent library scans. Scan Now buttons disable while a scan is running and re-enable when it completes.",
         "targetAbi": "10.11.0.0",

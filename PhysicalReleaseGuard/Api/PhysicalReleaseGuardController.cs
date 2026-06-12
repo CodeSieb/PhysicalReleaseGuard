@@ -22,16 +22,19 @@ public class PhysicalReleaseGuardController : ControllerBase
 {
     private readonly ILibraryManager _libraryManager;
     private readonly IHiddenTagService _hiddenTagService;
+    private readonly ITmdbService _tmdbService;
     private readonly ILogger<PhysicalReleaseGuardController> _logger;
     private readonly ConcurrentDictionary<string, bool> _activeScans = new();
 
     public PhysicalReleaseGuardController(
         ILibraryManager libraryManager,
         IHiddenTagService hiddenTagService,
+        ITmdbService tmdbService,
         ILogger<PhysicalReleaseGuardController> logger)
     {
         _libraryManager = libraryManager;
         _hiddenTagService = hiddenTagService;
+        _tmdbService = tmdbService;
         _logger = logger;
     }
 
@@ -70,7 +73,10 @@ public class PhysicalReleaseGuardController : ControllerBase
         {
             try
             {
-                await ScanLibraryItemsAsync(libraryFolder, normalizedLibraryId);
+                var config = Plugin.Instance?.Configuration;
+                var dryRun = config?.DryRunEnabled ?? false;
+                var region = string.IsNullOrWhiteSpace(config?.PreferredRegion) ? null : config.PreferredRegion;
+                await ScanLibraryItemsAsync(libraryFolder, normalizedLibraryId, dryRun, region);
             }
             catch (Exception ex)
             {
@@ -96,12 +102,12 @@ public class PhysicalReleaseGuardController : ControllerBase
         return Ok(new ScanStatusResponse { Scanning = _activeScans.ContainsKey(normalized) });
     }
 
-    private async Task ScanLibraryItemsAsync(BaseItem libraryFolder, string normalizedLibraryId)
+    private async Task ScanLibraryItemsAsync(BaseItem libraryFolder, string normalizedLibraryId, bool dryRun, string? region)
     {
         var perLibraryConfig = BuildPerLibraryConfigLookup();
         var libraryName = libraryFolder.Name ?? "Unknown";
 
-        _logger.LogInformation("Starting single-library scan for: {LibraryName}", libraryName);
+        _logger.LogInformation("Starting single-library scan for: {LibraryName} (dry-run: {DryRun}, region: {Region})", libraryName, dryRun, region ?? "all");
 
         if (!Guid.TryParse(libraryFolder.Id.ToString(), out var parentGuid))
         {
@@ -136,7 +142,7 @@ public class PhysicalReleaseGuardController : ControllerBase
 
             try
             {
-                var wasModified = await ProcessItemAsync(item, tagName);
+                var wasModified = await ProcessItemAsync(item, tagName, dryRun, region);
                 if (wasModified) modified++;
             }
             catch (Exception ex)
@@ -152,12 +158,12 @@ public class PhysicalReleaseGuardController : ControllerBase
             modified);
     }
 
-    private Task<bool> ProcessItemAsync(BaseItem item, string tagName)
+    private Task<bool> ProcessItemAsync(BaseItem item, string tagName, bool dryRun, string? region)
     {
         return item switch
         {
-            Movie movie => _hiddenTagService.ProcessMovieAsync(movie, tagName, CancellationToken.None),
-            Series series => _hiddenTagService.ProcessSeriesAsync(series, tagName, CancellationToken.None),
+            Movie movie => _hiddenTagService.ProcessMovieAsync(movie, tagName, dryRun, region, CancellationToken.None),
+            Series series => _hiddenTagService.ProcessSeriesAsync(series, tagName, dryRun, region, CancellationToken.None),
             _ => Task.FromResult(false)
         };
     }
@@ -206,6 +212,18 @@ public class PhysicalReleaseGuardController : ControllerBase
             .Replace("-", string.Empty, StringComparison.Ordinal)
             .ToLower(CultureInfo.InvariantCulture);
     }
+
+    /// <summary>
+    /// Fetches available countries from TMDb for region selection.
+    /// </summary>
+    [HttpGet("Countries")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<IReadOnlyList<TmdbCountry>>> GetCountries(CancellationToken cancellationToken)
+    {
+        var countries = await _tmdbService.GetCountriesAsync(cancellationToken).ConfigureAwait(false);
+        return Ok(countries);
+    }
+
 }
 
 /// <summary>

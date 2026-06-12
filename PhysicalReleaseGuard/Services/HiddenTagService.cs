@@ -15,16 +15,16 @@ public interface IHiddenTagService
     /// <summary>
     /// Processes a single movie, checking TMDb for physical release data
     /// and adding/removing the specified tag accordingly.
-    /// Returns true if the item's tags were modified.
+    /// Returns true if the item's tags were modified (or would be modified in dry-run mode).
     /// </summary>
-    Task<bool> ProcessMovieAsync(Movie movie, string tagName, CancellationToken cancellationToken = default);
+    Task<bool> ProcessMovieAsync(Movie movie, string tagName, bool dryRun = false, string? region = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Processes a single series, checking TMDb for physical release data
     /// and adding/removing the specified tag accordingly.
-    /// Returns true if the item's tags were modified.
+    /// Returns true if the item's tags were modified (or would be modified in dry-run mode).
     /// </summary>
-    Task<bool> ProcessSeriesAsync(Series series, string tagName, CancellationToken cancellationToken = default);
+    Task<bool> ProcessSeriesAsync(Series series, string tagName, bool dryRun = false, string? region = null, CancellationToken cancellationToken = default);
 }
 
 public class HiddenTagService : IHiddenTagService
@@ -41,9 +41,9 @@ public class HiddenTagService : IHiddenTagService
     }
 
     /// <inheritdoc />
-    public async Task<bool> ProcessMovieAsync(Movie movie, string tagName, CancellationToken cancellationToken = default)
+    public async Task<bool> ProcessMovieAsync(Movie movie, string tagName, bool dryRun = false, string? region = null, CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Processing movie: {Name} ({Year})", movie.Name, movie.ProductionYear);
+        _logger.LogInformation("Processing movie: {Name} ({Year}){DryRun}", movie.Name, movie.ProductionYear, dryRun ? " [DRY RUN]" : string.Empty);
 
         int? tmdbId = GetTmdbIdFromProviderIds(movie);
 
@@ -59,15 +59,16 @@ public class HiddenTagService : IHiddenTagService
             movie,
             "movie",
             tmdbId,
-            id => _tmdbService.HasPhysicalReleaseAsync(id, cancellationToken),
+            id => _tmdbService.HasPhysicalReleaseAsync(id, region, cancellationToken),
             tagName,
+            dryRun,
             cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
-    public async Task<bool> ProcessSeriesAsync(Series series, string tagName, CancellationToken cancellationToken = default)
+    public async Task<bool> ProcessSeriesAsync(Series series, string tagName, bool dryRun = false, string? region = null, CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Processing series: {Name} ({Year})", series.Name, series.ProductionYear);
+        _logger.LogInformation("Processing series: {Name} ({Year}){DryRun}", series.Name, series.ProductionYear, dryRun ? " [DRY RUN]" : string.Empty);
 
         int? tmdbId = GetTmdbIdFromProviderIds(series);
 
@@ -85,6 +86,7 @@ public class HiddenTagService : IHiddenTagService
             tmdbId,
             id => _tmdbService.HasSeriesPhysicalReleaseAsync(id, cancellationToken),
             tagName,
+            dryRun,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -94,6 +96,7 @@ public class HiddenTagService : IHiddenTagService
         int? tmdbId,
         Func<int, Task<bool?>> hasPhysicalReleaseAsync,
         string tagName,
+        bool dryRun,
         CancellationToken cancellationToken)
     {
         if (tmdbId == null)
@@ -123,6 +126,17 @@ public class HiddenTagService : IHiddenTagService
         {
             if (hasTag)
             {
+                if (dryRun)
+                {
+                    _logger.LogInformation(
+                        "[DRY RUN] Physical release found for {ItemType} '{Name}' (TMDb ID: {TmdbId}). Would remove '{TagName}' tag.",
+                        itemType,
+                        item.Name,
+                        tmdbId.Value,
+                        effectiveTagName);
+                    return true;
+                }
+
                 item.Tags = currentTags
                     .Where(t => !string.Equals(t, effectiveTagName, StringComparison.OrdinalIgnoreCase))
                     .ToArray();
@@ -148,6 +162,17 @@ public class HiddenTagService : IHiddenTagService
         {
             if (!hasTag)
             {
+                if (dryRun)
+                {
+                    _logger.LogInformation(
+                        "[DRY RUN] No physical release for {ItemType} '{Name}' (TMDb ID: {TmdbId}). Would add '{TagName}' tag.",
+                        itemType,
+                        item.Name,
+                        tmdbId.Value,
+                        effectiveTagName);
+                    return true;
+                }
+
                 item.Tags = currentTags.Concat(new[] { effectiveTagName }).ToArray();
                 await SaveItemAsync(item, cancellationToken).ConfigureAwait(false);
                 _logger.LogInformation(

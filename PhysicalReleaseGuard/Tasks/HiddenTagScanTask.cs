@@ -41,7 +41,8 @@ public class HiddenTagScanTask : IScheduledTask
 
     public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
     {
-        // By default, run daily at 3:00 AM
+        // By default, run daily at 3:00 AM.
+        // The schedule is configurable from the plugin config page via the UpdateSchedule endpoint.
         yield return new TaskTriggerInfo
         {
             Type = TaskTriggerInfoType.DailyTrigger,
@@ -60,6 +61,20 @@ public class HiddenTagScanTask : IScheduledTask
                 "or set the TMDbApiKey environment variable. Scan aborted.");
             progress.Report(100);
             return;
+        }
+
+        var config = Plugin.Instance.Configuration;
+        var dryRun = config.DryRunEnabled;
+        var region = string.IsNullOrWhiteSpace(config.PreferredRegion) ? null : config.PreferredRegion;
+
+        if (dryRun)
+        {
+            _logger.LogInformation("DRY RUN MODE is enabled. No tags will be modified.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(region))
+        {
+            _logger.LogInformation("Preferred region: {Region}", region);
         }
 
         var itemList = GetItemsToProcess();
@@ -86,7 +101,7 @@ public class HiddenTagScanTask : IScheduledTask
             try
             {
                 var tagName = GetTagNameForItem(item, perLibraryConfig);
-                var wasModified = await ProcessItemAsync(item, tagName, cancellationToken).ConfigureAwait(false);
+                var wasModified = await ProcessItemAsync(item, tagName, dryRun, region, cancellationToken).ConfigureAwait(false);
 
                 if (wasModified)
                 {
@@ -116,12 +131,12 @@ public class HiddenTagScanTask : IScheduledTask
             skipped);
     }
 
-    private Task<bool> ProcessItemAsync(BaseItem item, string tagName, CancellationToken cancellationToken)
+    private Task<bool> ProcessItemAsync(BaseItem item, string tagName, bool dryRun, string? region, CancellationToken cancellationToken)
     {
         return item switch
         {
-            Movie movie => _hiddenTagService.ProcessMovieAsync(movie, tagName, cancellationToken),
-            Series series => _hiddenTagService.ProcessSeriesAsync(series, tagName, cancellationToken),
+            Movie movie => _hiddenTagService.ProcessMovieAsync(movie, tagName, dryRun, region, cancellationToken),
+            Series series => _hiddenTagService.ProcessSeriesAsync(series, tagName, dryRun, region, cancellationToken),
             _ => Task.FromResult(false)
         };
     }

@@ -76,22 +76,26 @@ public class LibraryWatcherService : IHostedService
         }
 
         var tagName = ResolveTagName(item, library, config);
-        _logger.LogDebug(
-            "Auto-scan processing '{Item}' with tag '{TagName}'.",
-            item.Name,
-            tagName);
+        var region = string.IsNullOrWhiteSpace(config.PreferredRegion) ? null : config.PreferredRegion;
 
-        _ = ProcessItemAsync(item, tagName);
+        _logger.LogDebug(
+            "Auto-scan processing '{Item}' with tag '{TagName}' (region: {Region}).",
+            item.Name,
+            tagName,
+            region ?? "all");
+
+        _ = ProcessItemAsync(item, tagName, region);
     }
 
-    private async Task ProcessItemAsync(BaseItem item, string tagName)
+    private async Task ProcessItemAsync(BaseItem item, string tagName, string? region)
     {
         try
         {
+            // Auto-scan never uses dry-run — new items should always be tagged
             var wasModified = item switch
             {
-                Movie movie => await _hiddenTagService.ProcessMovieAsync(movie, tagName).ConfigureAwait(false),
-                Series series => await _hiddenTagService.ProcessSeriesAsync(series, tagName).ConfigureAwait(false),
+                Movie movie => await _hiddenTagService.ProcessMovieAsync(movie, tagName, dryRun: false, region: region).ConfigureAwait(false),
+                Series series => await _hiddenTagService.ProcessSeriesAsync(series, tagName, dryRun: false, region: region).ConfigureAwait(false),
                 _ => false
             };
 
