@@ -102,6 +102,27 @@
                         Selected movies and series are skipped entirely by the scheduled scan. The plugin will not add or remove the configured tag for those items.
                     </div>
                     <br />
+                    <div class="sectionTitleContainer">
+                        <h2 class="sectionTitle">Parental Control</h2>
+                    </div>
+                    <div class="checkboxContainer">
+                        <label>
+                            <input is="emby-checkbox" id="chkAutoBlockTagForNewUsers" type="checkbox" />
+                            <span>Auto-block tag for new users</span>
+                        </label>
+                        <div class="fieldDescription">
+                            When enabled, newly created users will automatically have the configured tag (e.g. <code>Hidden</code>) added to their Parental Control BlockedTags. This ensures new users can never see tagged content without manual admin intervention.
+                        </div>
+                    </div>
+                    <br />
+                    <button is="emby-button" id="btnApplyBlockedTag" type="button" class="raised block">
+                        <span>Apply blocked tag to all existing users</span>
+                    </button>
+                    <div class="fieldDescription">
+                        Adds the configured tag to the BlockedTags of every user who doesn't already have it. Use this to retroactively apply parental control to existing accounts.
+                    </div>
+                    <div id="applyBlockedTagResult" style="margin-top:.5em;display:none;"></div>
+                    <br />
                     <button is="emby-button" type="submit" class="raised button-submit block">
                         <span>Save</span>
                     </button>
@@ -466,6 +487,7 @@
                     document.getElementById("txtTagName").value = config.TagName || "Hidden";
                     document.getElementById("chkAutoScanEnabled").checked = config.AutoScanEnabled === true;
                     document.getElementById("chkDryRunEnabled").checked = config.DryRunEnabled === true;
+                    document.getElementById("chkAutoBlockTagForNewUsers").checked = config.AutoBlockTagForNewUsers === true;
                     document.getElementById("selScanHour").value = (config.ScanHour != null ? config.ScanHour : 3).toString();
                     document.getElementById("txtItemFilter").value = "";
                     return Promise.all([
@@ -488,6 +510,31 @@
             });
 
             document.getElementById("txtItemFilter").addEventListener("input", applyItemFilter);
+
+            document.getElementById("btnApplyBlockedTag").addEventListener("click", function () {
+                var btn = document.getElementById("btnApplyBlockedTag");
+                var resultDiv = document.getElementById("applyBlockedTagResult");
+                btn.disabled = true;
+                btn.textContent = "Applying...";
+                resultDiv.style.display = "none";
+
+                ApiClient.ajax({
+                    type: "POST",
+                    url: ApiClient.getUrl("PhysicalReleaseGuard/ApplyBlockedTagToAllUsers")
+                }).then(function (resp) {
+                    var modified = (resp && resp.Modified != null) ? resp.Modified : 0;
+                    resultDiv.style.display = "block";
+                    resultDiv.style.color = "#4caf50";
+                    resultDiv.textContent = "Done! Blocked tag applied to " + modified + " user(s).";
+                }).catch(function () {
+                    resultDiv.style.display = "block";
+                    resultDiv.style.color = "#f44336";
+                    resultDiv.textContent = "Error: could not apply blocked tag. Check server logs.";
+                }).finally(function () {
+                    btn.disabled = false;
+                    btn.textContent = "Apply blocked tag to all existing users";
+                });
+            });
 
             function refreshScanStatus() {
                 var buttons = document.querySelectorAll(".scanLibraryBtn[disabled]");
@@ -536,6 +583,7 @@
                     config.TagName = document.getElementById("txtTagName").value || "Hidden";
                     config.AutoScanEnabled = document.getElementById("chkAutoScanEnabled").checked;
                     config.DryRunEnabled = document.getElementById("chkDryRunEnabled").checked;
+                    config.AutoBlockTagForNewUsers = document.getElementById("chkAutoBlockTagForNewUsers").checked;
                     config.PreferredRegion = document.getElementById("selPreferredRegion").value || "";
                     config.ScanHour = parseInt(document.getElementById("selScanHour").value, 10) || 3;
 

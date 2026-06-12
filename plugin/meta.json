@@ -1,6 +1,6 @@
 {
   "category": "General",
-  "changelog": "Adds configurable scan schedule UI, dry-run mode for previewing changes, and preferred region filtering for TMDb physical releases.",
+  "changelog": "Auto-block tag for new users in Parental Control. Adds Parental Control section with toggle and apply-to-all-users button.",
   "description": "Automatically manages a configurable tag for movies and series based on TMDb physical release data.",
   "guid": "a7b3c9e1-4f2d-4e8b-9a6c-1d3f5e7b9a0c",
   "name": "Physical Release Guard",
@@ -8,7 +8,7 @@
   "owner": "CodeSieb",
   "targetAbi": "10.11.0.0",
   "timestamp": "2026-06-12T00:00:00Z",
-  "version": "1.9.0.0",
+  "version": "1.10.0.0",
   "status": "Active",
   "autoUpdate": true,
   "assemblies": [

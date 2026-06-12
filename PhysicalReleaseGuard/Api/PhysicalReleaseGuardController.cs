@@ -23,6 +23,7 @@ public class PhysicalReleaseGuardController : ControllerBase
     private readonly ILibraryManager _libraryManager;
     private readonly IHiddenTagService _hiddenTagService;
     private readonly ITmdbService _tmdbService;
+    private readonly UserTagBlockService _userTagBlockService;
     private readonly ILogger<PhysicalReleaseGuardController> _logger;
     private readonly ConcurrentDictionary<string, bool> _activeScans = new();
 
@@ -30,11 +31,13 @@ public class PhysicalReleaseGuardController : ControllerBase
         ILibraryManager libraryManager,
         IHiddenTagService hiddenTagService,
         ITmdbService tmdbService,
+        UserTagBlockService userTagBlockService,
         ILogger<PhysicalReleaseGuardController> logger)
     {
         _libraryManager = libraryManager;
         _hiddenTagService = hiddenTagService;
         _tmdbService = tmdbService;
+        _userTagBlockService = userTagBlockService;
         _logger = logger;
     }
 
@@ -222,6 +225,17 @@ public class PhysicalReleaseGuardController : ControllerBase
     {
         var countries = await _tmdbService.GetCountriesAsync(cancellationToken).ConfigureAwait(false);
         return Ok(countries);
+    }
+
+    /// <summary>
+    /// Applies the configured tag to the BlockedTags of all existing users who don't already have it.
+    /// </summary>
+    [HttpPost("ApplyBlockedTagToAllUsers")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult> ApplyBlockedTagToAllUsers(CancellationToken cancellationToken)
+    {
+        var modified = await _userTagBlockService.ApplyBlockedTagToAllUsersAsync(cancellationToken).ConfigureAwait(false);
+        return Ok(new { Modified = modified });
     }
 
 }

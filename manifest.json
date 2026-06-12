@@ -8,6 +8,14 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.10.0.0",
+        "changelog": "Auto-block tag for new users in Parental Control. Adds Parental Control section with toggle and apply-to-all-users button.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/plugin/PhysicalReleaseGuard.zip",
+        "checksum": "0d6244f2e9e4704dfe0a3add07c97839",
+        "timestamp": "2026-06-12T00:00:00Z"
+      },
+      {
         "version": "1.9.0.0",
         "changelog": "Adds configurable scan schedule UI, dry-run mode for previewing changes, and preferred region filtering for TMDb physical releases.",
         "targetAbi": "10.11.0.0",

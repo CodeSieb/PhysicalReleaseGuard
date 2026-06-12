@@ -20,6 +20,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IHiddenTagService, HiddenTagService>();
         serviceCollection.AddSingleton<IScheduledTask, HiddenTagScanTask>();
         serviceCollection.AddSingleton<IHostedService, LibraryWatcherService>();
+        serviceCollection.AddSingleton<UserTagBlockService>();
+        serviceCollection.AddSingleton<IHostedService>(sp => sp.GetRequiredService<UserTagBlockService>());
         serviceCollection.AddSingleton<PhysicalReleaseGuardController>();
     }
 }

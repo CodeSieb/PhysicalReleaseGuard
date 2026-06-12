@@ -62,6 +62,12 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the hour of day (0-23) for the scheduled scan.
     /// </summary>
     public int ScanHour { get; set; } = 3;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether newly created users should automatically
+    /// have the configured tag added to their BlockedTags in Parental Control.
+    /// </summary>
+    public bool AutoBlockTagForNewUsers { get; set; } = false;
 }
 
 /// <summary>
