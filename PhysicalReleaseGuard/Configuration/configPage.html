@@ -35,11 +35,11 @@
                     </div>
                     <br />
                     <div class="sectionTitleContainer">
-                        <h2 class="sectionTitle">Excluded Libraries</h2>
+                        <h2 class="sectionTitle">Libraries</h2>
                     </div>
-                    <div id="libraryExclusionsContainer" class="checkboxListContainer"></div>
+                    <div id="libraryConfigContainer"></div>
                     <div class="fieldDescription">
-                        Selected libraries are skipped entirely by the scheduled scan. Items in those libraries will not have the configured tag added or removed by this plugin.
+                        Configure per-library settings. Disabled libraries are skipped entirely. Set a custom tag name per library, or leave blank to use the global tag above.
                     </div>
                     <br />
                     <div class="sectionTitleContainer">
@@ -182,10 +182,8 @@
                 }
             }
 
-            function renderLibraryExclusions(config) {
-                var container = document.getElementById("libraryExclusionsContainer");
-                var excludedIds = (config.ExcludedLibraryIds || []).map(normalizeLibraryId);
-                var excludedNames = config.ExcludedLibraryNames || [];
+            function renderLibraryConfig(config) {
+                var container = document.getElementById("libraryConfigContainer");
 
                 librariesLoaded = false;
                 container.textContent = "Loading libraries...";
@@ -199,34 +197,85 @@
                         return;
                     }
 
+                    // Build per-library lookup from config
+                    var configByLibraryId = {};
+                    (config.PerLibraryConfig || []).forEach(function (lc) {
+                        configByLibraryId[normalizeLibraryId(lc.LibraryId)] = lc;
+                    });
+
+                    // Migrate old ExcludedLibraryIds/Names if PerLibraryConfig is empty
+                    var hasOldExclusions = (config.ExcludedLibraryIds || []).length > 0 ||
+                        (config.ExcludedLibraryNames || []).length > 0;
+                    var oldExcludedIds = (config.ExcludedLibraryIds || []).map(normalizeLibraryId);
+                    var oldExcludedNames = config.ExcludedLibraryNames || [];
+
                     libraries.forEach(function (library) {
                         var libraryId = getLibraryId(library);
                         var normalizedLibraryId = normalizeLibraryId(libraryId);
                         var libraryName = getLibraryName(library);
                         var collectionType = (library.CollectionType || library.collectionType || "").toString();
+                        var displayName = collectionType ? libraryName + " (" + collectionType + ")" : libraryName;
 
+                        var existingConfig = configByLibraryId[normalizedLibraryId];
+                        var isEnabled;
+                        var customTagName;
+
+                        if (existingConfig) {
+                            isEnabled = existingConfig.Enabled !== false;
+                            customTagName = existingConfig.TagName || "";
+                        } else if (hasOldExclusions) {
+                            isEnabled = oldExcludedIds.indexOf(normalizedLibraryId) === -1 &&
+                                oldExcludedNames.indexOf(libraryName) === -1;
+                            customTagName = "";
+                        } else {
+                            isEnabled = true;
+                            customTagName = "";
+                        }
+
+                        // Library row container
+                        var row = document.createElement("div");
+                        row.className = "libraryConfigItem";
+                        row.style.cssText = "margin-bottom:1em;padding:.5em;border:1px solid #444;border-radius:4px;";
+
+                        // Enabled checkbox + name
                         var label = document.createElement("label");
                         label.className = "checkboxContainer";
-                        label.style.display = "block";
-                        label.style.margin = "0 0 .75em";
+                        label.style.cssText = "display:flex;align-items:center;margin:0 0 .5em;";
 
                         var checkbox = createCheckbox();
                         checkbox.type = "checkbox";
-                        checkbox.className = "libraryExclusionCheckbox";
+                        checkbox.className = "libraryEnabledCheckbox";
                         checkbox.dataset.libraryId = libraryId;
                         checkbox.dataset.libraryName = libraryName;
-                        checkbox.checked = excludedIds.indexOf(normalizedLibraryId) !== -1 ||
-                            excludedNames.indexOf(libraryName) !== -1;
+                        checkbox.checked = isEnabled;
 
                         var text = document.createElement("span");
-                        text.textContent = collectionType ? libraryName + " (" + collectionType + ")" : libraryName;
+                        text.textContent = displayName;
 
                         label.appendChild(checkbox);
                         label.appendChild(text);
-                        container.appendChild(label);
+                        row.appendChild(label);
+
+                        // Custom tag name input
+                        var inputContainer = document.createElement("div");
+                        inputContainer.className = "inputContainer";
+                        inputContainer.style.cssText = "margin:0;";
+
+                        var input = document.createElement("input");
+                        input.is = "emby-input";
+                        input.type = "text";
+                        input.className = "libraryTagNameInput";
+                        input.setAttribute("label", "Custom tag (optional)");
+                        input.placeholder = "Default: Hidden";
+                        input.dataset.libraryId = libraryId;
+                        input.value = customTagName;
+
+                        inputContainer.appendChild(input);
+                        row.appendChild(inputContainer);
+                        container.appendChild(row);
                     });
                 }).catch(function () {
-                    container.textContent = "Could not load libraries. Existing exclusions will be preserved when saving.";
+                    container.textContent = "Could not load libraries. Existing configuration will be preserved when saving.";
                 });
             }
 
@@ -301,7 +350,7 @@
                     document.getElementById("txtTagName").value = config.TagName || "Hidden";
                     document.getElementById("txtItemFilter").value = "";
                     return Promise.all([
-                        renderLibraryExclusions(config),
+                        renderLibraryConfig(config),
                         renderItemExclusions(config)
                     ]);
                 }).then(function () {
@@ -322,16 +371,27 @@
                     config.TagName = document.getElementById("txtTagName").value || "Hidden";
 
                     if (librariesLoaded) {
-                        var checkedLibraries = Array.prototype.slice.call(
-                            document.querySelectorAll(".libraryExclusionCheckbox:checked"));
+                        var libraryRows = Array.prototype.slice.call(
+                            document.querySelectorAll(".libraryConfigItem"));
 
-                        config.ExcludedLibraryIds = checkedLibraries
-                            .map(function (checkbox) { return checkbox.dataset.libraryId; })
-                            .filter(function (libraryId) { return !!libraryId; });
+                        config.PerLibraryConfig = libraryRows.map(function (row) {
+                            var checkbox = row.querySelector(".libraryEnabledCheckbox");
+                            var input = row.querySelector(".libraryTagNameInput");
+                            return {
+                                LibraryId: checkbox ? checkbox.dataset.libraryId : "",
+                                LibraryName: checkbox ? checkbox.dataset.libraryName : "",
+                                Enabled: checkbox ? checkbox.checked : true,
+                                TagName: input ? input.value : ""
+                            };
+                        }).filter(function (lc) { return !!lc.LibraryId; });
 
-                        config.ExcludedLibraryNames = checkedLibraries
-                            .map(function (checkbox) { return checkbox.dataset.libraryName; })
-                            .filter(function (libraryName) { return !!libraryName; });
+                        // Keep ExcludedLibraryIds/Names in sync for backward compat
+                        config.ExcludedLibraryIds = config.PerLibraryConfig
+                            .filter(function (lc) { return !lc.Enabled; })
+                            .map(function (lc) { return lc.LibraryId; });
+                        config.ExcludedLibraryNames = config.PerLibraryConfig
+                            .filter(function (lc) { return !lc.Enabled; })
+                            .map(function (lc) { return lc.LibraryName; });
                     }
 
                     if (itemsLoaded) {

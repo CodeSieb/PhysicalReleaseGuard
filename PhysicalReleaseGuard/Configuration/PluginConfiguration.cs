@@ -36,4 +36,35 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Defaults to "Hidden".
     /// </summary>
     public string TagName { get; set; } = "Hidden";
+
+    /// <summary>
+    /// Gets or sets per-library configuration (tag name, enabled state).
+    /// </summary>
+    public LibraryConfig[] PerLibraryConfig { get; set; } = Array.Empty<LibraryConfig>();
+}
+
+/// <summary>
+/// Configuration for a single library: whether the plugin is enabled and which tag to manage.
+/// </summary>
+public class LibraryConfig
+{
+    /// <summary>
+    /// Gets or sets the library ID.
+    /// </summary>
+    public string LibraryId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the library name (for display/reference).
+    /// </summary>
+    public string LibraryName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the plugin is enabled for this library.
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets the tag name for this library. If empty, the global tag name is used.
+    /// </summary>
+    public string TagName { get; set; } = string.Empty;
 }

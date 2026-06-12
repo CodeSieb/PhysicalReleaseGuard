@@ -74,6 +74,7 @@ public class HiddenTagScanTask : IScheduledTask
             return;
         }
 
+        var perLibraryConfig = BuildPerLibraryConfigLookup();
         var processed = 0;
         var modified = 0;
         var skipped = 0;
@@ -84,7 +85,8 @@ public class HiddenTagScanTask : IScheduledTask
 
             try
             {
-                var wasModified = await ProcessItemAsync(item, cancellationToken).ConfigureAwait(false);
+                var tagName = GetTagNameForItem(item, perLibraryConfig);
+                var wasModified = await ProcessItemAsync(item, tagName, cancellationToken).ConfigureAwait(false);
 
                 if (wasModified)
                 {
@@ -103,7 +105,6 @@ public class HiddenTagScanTask : IScheduledTask
 
             processed++;
 
-            // Report progress (0-100)
             var percent = (double)processed / total * 100;
             progress.Report(percent);
         }
@@ -115,12 +116,12 @@ public class HiddenTagScanTask : IScheduledTask
             skipped);
     }
 
-    private Task<bool> ProcessItemAsync(BaseItem item, CancellationToken cancellationToken)
+    private Task<bool> ProcessItemAsync(BaseItem item, string tagName, CancellationToken cancellationToken)
     {
         return item switch
         {
-            Movie movie => _hiddenTagService.ProcessMovieAsync(movie, cancellationToken),
-            Series series => _hiddenTagService.ProcessSeriesAsync(series, cancellationToken),
+            Movie movie => _hiddenTagService.ProcessMovieAsync(movie, tagName, cancellationToken),
+            Series series => _hiddenTagService.ProcessSeriesAsync(series, tagName, cancellationToken),
             _ => Task.FromResult(false)
         };
     }
@@ -129,8 +130,13 @@ public class HiddenTagScanTask : IScheduledTask
     {
         var excludedLibraryIds = GetExcludedLibraryIds();
         var excludedLibraryNames = GetExcludedLibraryNames();
+        var disabledFromPerLibrary = GetDisabledFromPerLibraryConfig();
         var excludedItemIds = GetExcludedItemIds();
         var excludedItemKeys = GetExcludedItemKeys();
+
+        // Merge old-style excluded library IDs with per-library disabled
+        var allExcludedLibraryIds = new HashSet<string>(excludedLibraryIds, StringComparer.OrdinalIgnoreCase);
+        allExcludedLibraryIds.UnionWith(disabledFromPerLibrary);
 
         var query = new InternalItemsQuery
         {
@@ -143,7 +149,7 @@ public class HiddenTagScanTask : IScheduledTask
             .Where(item => item is Movie or Series)
             .ToList();
 
-        if (excludedLibraryIds.Count == 0 &&
+        if (allExcludedLibraryIds.Count == 0 &&
             excludedLibraryNames.Count == 0 &&
             excludedItemIds.Count == 0 &&
             excludedItemKeys.Count == 0)
@@ -151,10 +157,10 @@ public class HiddenTagScanTask : IScheduledTask
             return items;
         }
 
-        var libraryFilteredItems = excludedLibraryIds.Count == 0 && excludedLibraryNames.Count == 0
+        var libraryFilteredItems = allExcludedLibraryIds.Count == 0 && excludedLibraryNames.Count == 0
             ? items
             : items
-                .Where(item => !IsInExcludedLibrary(item, excludedLibraryIds, excludedLibraryNames))
+                .Where(item => !IsInExcludedLibrary(item, allExcludedLibraryIds, excludedLibraryNames))
                 .ToList();
 
         var includedItems = excludedItemIds.Count == 0 && excludedItemKeys.Count == 0
@@ -172,6 +178,41 @@ public class HiddenTagScanTask : IScheduledTask
             includedItems.Count);
 
         return includedItems;
+    }
+
+    private static Dictionary<string, Configuration.LibraryConfig> BuildPerLibraryConfigLookup()
+    {
+        return (Plugin.Instance?.Configuration.PerLibraryConfig ?? Array.Empty<Configuration.LibraryConfig>())
+            .Where(c => !string.IsNullOrWhiteSpace(c.LibraryId))
+            .ToDictionary(
+                c => NormalizeLibraryId(c.LibraryId),
+                c => c,
+                StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static HashSet<string> GetDisabledFromPerLibraryConfig()
+    {
+        return (Plugin.Instance?.Configuration.PerLibraryConfig ?? Array.Empty<Configuration.LibraryConfig>())
+            .Where(c => !c.Enabled && !string.IsNullOrWhiteSpace(c.LibraryId))
+            .Select(c => NormalizeLibraryId(c.LibraryId))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private string GetTagNameForItem(BaseItem item, Dictionary<string, Configuration.LibraryConfig> perLibraryConfig)
+    {
+        var collectionFolders = _libraryManager.GetCollectionFolders(item);
+        var library = collectionFolders?.FirstOrDefault();
+        if (library != null)
+        {
+            var libraryId = NormalizeLibraryId(library.Id.ToString("N"));
+            if (perLibraryConfig.TryGetValue(libraryId, out var config) && !string.IsNullOrWhiteSpace(config.TagName))
+            {
+                return config.TagName;
+            }
+        }
+
+        var globalTagName = Plugin.Instance?.Configuration.TagName;
+        return !string.IsNullOrWhiteSpace(globalTagName) ? globalTagName : "Hidden";
     }
 
     private bool IsExcludedItem(

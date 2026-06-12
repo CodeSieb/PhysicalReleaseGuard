@@ -22,6 +22,14 @@
         "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/plugin/PhysicalReleaseGuard.zip",
         "checksum": "fc0e0fb6371f405197399791517711ac",
         "timestamp": "2026-06-12T00:00:00Z"
+      },
+      {
+        "version": "1.5.0.0",
+        "changelog": "Adds per-library configuration including enable/disable toggle and custom tag name per library.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/plugin/PhysicalReleaseGuard.zip",
+        "checksum": "5298b6f7acd0b4d7d3dfbef77e94acd6",
+        "timestamp": "2026-06-12T00:00:00Z"
       }
     ]
   }

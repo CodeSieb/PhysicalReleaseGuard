@@ -8,23 +8,23 @@ using Microsoft.Extensions.Logging;
 namespace PhysicalReleaseGuard.Services;
 
 /// <summary>
-/// Service that applies the "Hidden" tag logic based on TMDb physical release data.
+/// Service that applies tag logic based on TMDb physical release data.
 /// </summary>
 public interface IHiddenTagService
 {
     /// <summary>
     /// Processes a single movie, checking TMDb for physical release data
-    /// and adding/removing the "Hidden" tag accordingly.
+    /// and adding/removing the specified tag accordingly.
     /// Returns true if the item's tags were modified.
     /// </summary>
-    Task<bool> ProcessMovieAsync(Movie movie, CancellationToken cancellationToken = default);
+    Task<bool> ProcessMovieAsync(Movie movie, string tagName, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Processes a single series, checking TMDb for physical release data
-    /// and adding/removing the "Hidden" tag accordingly.
+    /// and adding/removing the specified tag accordingly.
     /// Returns true if the item's tags were modified.
     /// </summary>
-    Task<bool> ProcessSeriesAsync(Series series, CancellationToken cancellationToken = default);
+    Task<bool> ProcessSeriesAsync(Series series, string tagName, CancellationToken cancellationToken = default);
 }
 
 public class HiddenTagService : IHiddenTagService
@@ -41,7 +41,7 @@ public class HiddenTagService : IHiddenTagService
     }
 
     /// <inheritdoc />
-    public async Task<bool> ProcessMovieAsync(Movie movie, CancellationToken cancellationToken = default)
+    public async Task<bool> ProcessMovieAsync(Movie movie, string tagName, CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Processing movie: {Name} ({Year})", movie.Name, movie.ProductionYear);
 
@@ -60,11 +60,12 @@ public class HiddenTagService : IHiddenTagService
             "movie",
             tmdbId,
             id => _tmdbService.HasPhysicalReleaseAsync(id, cancellationToken),
+            tagName,
             cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
-    public async Task<bool> ProcessSeriesAsync(Series series, CancellationToken cancellationToken = default)
+    public async Task<bool> ProcessSeriesAsync(Series series, string tagName, CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Processing series: {Name} ({Year})", series.Name, series.ProductionYear);
 
@@ -83,6 +84,7 @@ public class HiddenTagService : IHiddenTagService
             "series",
             tmdbId,
             id => _tmdbService.HasSeriesPhysicalReleaseAsync(id, cancellationToken),
+            tagName,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -91,6 +93,7 @@ public class HiddenTagService : IHiddenTagService
         string itemType,
         int? tmdbId,
         Func<int, Task<bool?>> hasPhysicalReleaseAsync,
+        string tagName,
         CancellationToken cancellationToken)
     {
         if (tmdbId == null)
@@ -112,17 +115,16 @@ public class HiddenTagService : IHiddenTagService
             return false;
         }
 
-        var tagName = GetTagName();
+        var effectiveTagName = !string.IsNullOrWhiteSpace(tagName) ? tagName : "Hidden";
         var currentTags = item.Tags ?? Array.Empty<string>();
-        var hasHiddenTag = currentTags.Contains(tagName, StringComparer.OrdinalIgnoreCase);
+        var hasTag = currentTags.Contains(effectiveTagName, StringComparer.OrdinalIgnoreCase);
 
         if (hasPhysicalRelease.Value)
         {
-            // Physical release exists → remove the Hidden tag if present
-            if (hasHiddenTag)
+            if (hasTag)
             {
                 item.Tags = currentTags
-                    .Where(t => !string.Equals(t, tagName, StringComparison.OrdinalIgnoreCase))
+                    .Where(t => !string.Equals(t, effectiveTagName, StringComparison.OrdinalIgnoreCase))
                     .ToArray();
                 await SaveItemAsync(item, cancellationToken).ConfigureAwait(false);
                 _logger.LogInformation(
@@ -130,7 +132,7 @@ public class HiddenTagService : IHiddenTagService
                     itemType,
                     item.Name,
                     tmdbId.Value,
-                    tagName);
+                    effectiveTagName);
                 return true;
             }
 
@@ -139,22 +141,21 @@ public class HiddenTagService : IHiddenTagService
                 itemType,
                 item.Name,
                 tmdbId.Value,
-                tagName);
+                effectiveTagName);
             return false;
         }
         else
         {
-            // No physical release → add the tag if not present
-            if (!hasHiddenTag)
+            if (!hasTag)
             {
-                item.Tags = currentTags.Concat(new[] { tagName }).ToArray();
+                item.Tags = currentTags.Concat(new[] { effectiveTagName }).ToArray();
                 await SaveItemAsync(item, cancellationToken).ConfigureAwait(false);
                 _logger.LogInformation(
                     "No physical release for {ItemType} '{Name}' (TMDb ID: {TmdbId}). Added '{TagName}' tag.",
                     itemType,
                     item.Name,
                     tmdbId.Value,
-                    tagName);
+                    effectiveTagName);
                 return true;
             }
 
@@ -163,15 +164,9 @@ public class HiddenTagService : IHiddenTagService
                 itemType,
                 item.Name,
                 tmdbId.Value,
-                tagName);
+                effectiveTagName);
             return false;
         }
-    }
-
-    private static string GetTagName()
-    {
-        var tagName = Plugin.Instance?.Configuration.TagName;
-        return !string.IsNullOrWhiteSpace(tagName) ? tagName : "Hidden";
     }
 
     private static int? GetTmdbIdFromProviderIds(BaseItem item)
