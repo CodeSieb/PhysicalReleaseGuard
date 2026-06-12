@@ -237,10 +237,13 @@
                         row.className = "libraryConfigItem";
                         row.style.cssText = "margin-bottom:1em;padding:.5em;border:1px solid #444;border-radius:4px;";
 
-                        // Enabled checkbox + name
+                        // Enabled checkbox + name + scan button
+                        var headerRow = document.createElement("div");
+                        headerRow.style.cssText = "display:flex;align-items:center;justify-content:space-between;margin:0 0 .5em;";
+
                         var label = document.createElement("label");
                         label.className = "checkboxContainer";
-                        label.style.cssText = "display:flex;align-items:center;margin:0 0 .5em;";
+                        label.style.cssText = "display:flex;align-items:center;margin:0;";
 
                         var checkbox = createCheckbox();
                         checkbox.type = "checkbox";
@@ -254,7 +257,16 @@
 
                         label.appendChild(checkbox);
                         label.appendChild(text);
-                        row.appendChild(label);
+                        headerRow.appendChild(label);
+
+                        var scanBtn = document.createElement("button");
+                        scanBtn.type = "button";
+                        scanBtn.className = "raised scanLibraryBtn";
+                        scanBtn.dataset.libraryId = libraryId;
+                        scanBtn.textContent = "Scan Now";
+
+                        headerRow.appendChild(scanBtn);
+                        row.appendChild(headerRow);
 
                         // Custom tag name input
                         var inputContainer = document.createElement("div");
@@ -361,6 +373,28 @@
             });
 
             document.getElementById("txtItemFilter").addEventListener("input", applyItemFilter);
+
+            document.querySelector(".pluginConfigurationForm").addEventListener("click", function (e) {
+                var btn = e.target.closest(".scanLibraryBtn");
+                if (!btn) return;
+
+                var libraryId = btn.dataset.libraryId;
+                if (!libraryId) return;
+
+                btn.disabled = true;
+                btn.textContent = "Scanning...";
+
+                ApiClient.ajax({
+                    type: "POST",
+                    url: ApiClient.getUrl("PhysicalReleaseGuard/ScanLibrary/" + encodeURIComponent(libraryId))
+                }).then(function () {
+                    btn.textContent = "Scan Now";
+                    btn.disabled = false;
+                }).catch(function () {
+                    btn.textContent = "Scan Now";
+                    btn.disabled = false;
+                });
+            });
 
             document.querySelector(".pluginConfigurationForm").addEventListener("submit", function (e) {
                 e.preventDefault();

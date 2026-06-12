@@ -30,6 +30,14 @@
         "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/plugin/PhysicalReleaseGuard.zip",
         "checksum": "5298b6f7acd0b4d7d3dfbef77e94acd6",
         "timestamp": "2026-06-12T00:00:00Z"
+      },
+      {
+        "version": "1.6.0.0",
+        "changelog": "Adds per-library scan buttons on the config page to trigger a scan for a single library.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/plugin/PhysicalReleaseGuard.zip",
+        "checksum": "4c1e83bf2836e617359bc291f12c00fe",
+        "timestamp": "2026-06-12T00:00:00Z"
       }
     ]
   }

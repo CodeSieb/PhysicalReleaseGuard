@@ -1,6 +1,6 @@
 {
   "category": "General",
-  "changelog": "Adds per-library configuration including enable/disable toggle and custom tag name per library.",
+  "changelog": "Adds per-library scan buttons on the config page to trigger a scan for a single library.",
   "description": "Automatically manages a configurable tag for movies and series based on TMDb physical release data.",
   "guid": "a7b3c9e1-4f2d-4e8b-9a6c-1d3f5e7b9a0c",
   "name": "Physical Release Guard",
@@ -8,7 +8,7 @@
   "owner": "CodeSieb",
   "targetAbi": "10.11.0.0",
   "timestamp": "2026-06-12T00:00:00Z",
-  "version": "1.5.0.0",
+  "version": "1.6.0.0",
   "status": "Active",
   "autoUpdate": true,
   "assemblies": [

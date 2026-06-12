@@ -1,3 +1,4 @@
+using PhysicalReleaseGuard.Api;
 using PhysicalReleaseGuard.Services;
 using PhysicalReleaseGuard.Tasks;
 using MediaBrowser.Controller;
@@ -17,5 +18,6 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<ITmdbService, TmdbService>();
         serviceCollection.AddSingleton<IHiddenTagService, HiddenTagService>();
         serviceCollection.AddSingleton<IScheduledTask, HiddenTagScanTask>();
+        serviceCollection.AddSingleton<PhysicalReleaseGuardController>();
     }
 }
