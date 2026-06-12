@@ -12,7 +12,7 @@
         "changelog": "Auto-block tag for new users in Parental Control. Adds Parental Control section with toggle and apply-to-all-users button.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/plugin/PhysicalReleaseGuard.zip",
-        "checksum": "f82a4e1e3a61a5146a0a0d6424d76cdb",
+        "checksum": "38ebec08ac22a18d9efd14377b7a46c4",
         "timestamp": "2026-06-12T00:00:00Z"
       },
       {
