@@ -38,6 +38,11 @@ public class PluginConfiguration : BasePluginConfiguration
     public string TagName { get; set; } = "Hidden";
 
     /// <summary>
+    /// Gets or sets a value indicating whether newly added items should be automatically scanned.
+    /// </summary>
+    public bool AutoScanEnabled { get; set; } = false;
+
+    /// <summary>
     /// Gets or sets per-library configuration (tag name, enabled state).
     /// </summary>
     public LibraryConfig[] PerLibraryConfig { get; set; } = Array.Empty<LibraryConfig>();

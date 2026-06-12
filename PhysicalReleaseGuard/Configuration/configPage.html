@@ -35,6 +35,19 @@
                     </div>
                     <br />
                     <div class="sectionTitleContainer">
+                        <h2 class="sectionTitle">Auto-Scan</h2>
+                    </div>
+                    <div class="checkboxContainer">
+                        <label>
+                            <input is="emby-checkbox" id="chkAutoScanEnabled" type="checkbox" />
+                            <span>Automatically scan new items when added to library</span>
+                        </label>
+                        <div class="fieldDescription">
+                            When enabled, newly added movies and series are processed immediately using per-library settings. Disabled libraries and excluded items are still skipped.
+                        </div>
+                    </div>
+                    <br />
+                    <div class="sectionTitleContainer">
                         <h2 class="sectionTitle">Libraries</h2>
                     </div>
                     <div id="libraryConfigContainer"></div>
@@ -360,6 +373,7 @@
                 ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                     document.getElementById("txtTmdbApiKey").value = config.TmdbApiKey || "";
                     document.getElementById("txtTagName").value = config.TagName || "Hidden";
+                    document.getElementById("chkAutoScanEnabled").checked = config.AutoScanEnabled === true;
                     document.getElementById("txtItemFilter").value = "";
                     return Promise.all([
                         renderLibraryConfig(config),
@@ -403,6 +417,7 @@
                 ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                     config.TmdbApiKey = document.getElementById("txtTmdbApiKey").value;
                     config.TagName = document.getElementById("txtTagName").value || "Hidden";
+                    config.AutoScanEnabled = document.getElementById("chkAutoScanEnabled").checked;
 
                     if (librariesLoaded) {
                         var libraryRows = Array.prototype.slice.call(

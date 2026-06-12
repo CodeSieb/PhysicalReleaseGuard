@@ -32,6 +32,14 @@
         "timestamp": "2026-06-12T00:00:00Z"
       },
       {
+        "version": "1.7.0.0",
+        "changelog": "Adds auto-scan for new items with configurable toggle in settings.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/plugin/PhysicalReleaseGuard.zip",
+        "checksum": "dd321f80bb308f0f347bdba500449840",
+        "timestamp": "2026-06-12T00:00:00Z"
+      },
+      {
         "version": "1.6.0.0",
         "changelog": "Adds per-library scan buttons on the config page to trigger a scan for a single library.",
         "targetAbi": "10.11.0.0",

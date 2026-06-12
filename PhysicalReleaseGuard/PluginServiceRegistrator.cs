@@ -5,6 +5,7 @@ using MediaBrowser.Controller;
 using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace PhysicalReleaseGuard;
 
@@ -18,6 +19,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<ITmdbService, TmdbService>();
         serviceCollection.AddSingleton<IHiddenTagService, HiddenTagService>();
         serviceCollection.AddSingleton<IScheduledTask, HiddenTagScanTask>();
+        serviceCollection.AddSingleton<IHostedService, LibraryWatcherService>();
         serviceCollection.AddSingleton<PhysicalReleaseGuardController>();
     }
 }
