@@ -1,6 +1,6 @@
 {
   "category": "General",
-  "changelog": "Adds auto-scan for new items with configurable toggle in settings.",
+  "changelog": "Prevents concurrent library scans. Scan Now buttons disable while a scan is running and re-enable when it completes.",
   "description": "Automatically manages a configurable tag for movies and series based on TMDb physical release data.",
   "guid": "a7b3c9e1-4f2d-4e8b-9a6c-1d3f5e7b9a0c",
   "name": "Physical Release Guard",
@@ -8,7 +8,7 @@
   "owner": "CodeSieb",
   "targetAbi": "10.11.0.0",
   "timestamp": "2026-06-12T00:00:00Z",
-  "version": "1.7.0.0",
+  "version": "1.8.0.0",
   "status": "Active",
   "autoUpdate": true,
   "assemblies": [

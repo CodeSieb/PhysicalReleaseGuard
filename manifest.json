@@ -8,6 +8,14 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.8.0.0",
+        "changelog": "Prevents concurrent library scans. Scan Now buttons disable while a scan is running and re-enable when it completes.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/plugin/PhysicalReleaseGuard.zip",
+        "checksum": "0b028f97f0170bff599f70584a5df63b",
+        "timestamp": "2026-06-12T00:00:00Z"
+      },
+      {
         "version": "1.3.0.0",
         "changelog": "Adds configurable movie and series exclusions so selected titles are skipped and left untouched by the Hidden tag scan.",
         "targetAbi": "10.11.0.0",

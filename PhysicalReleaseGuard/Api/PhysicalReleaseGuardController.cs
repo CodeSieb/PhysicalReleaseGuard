@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.Globalization;
+using System.Text.Json.Serialization;
 using Jellyfin.Data.Enums;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Entities;
@@ -21,6 +23,7 @@ public class PhysicalReleaseGuardController : ControllerBase
     private readonly ILibraryManager _libraryManager;
     private readonly IHiddenTagService _hiddenTagService;
     private readonly ILogger<PhysicalReleaseGuardController> _logger;
+    private readonly ConcurrentDictionary<string, bool> _activeScans = new();
 
     public PhysicalReleaseGuardController(
         ILibraryManager libraryManager,
@@ -57,6 +60,12 @@ public class PhysicalReleaseGuardController : ControllerBase
             return Accepted();
         }
 
+        if (!_activeScans.TryAdd(normalizedLibraryId, true))
+        {
+            _logger.LogInformation("Scan already in progress for library '{LibraryName}'.", libraryFolder.Name);
+            return Conflict("A scan is already running for this library.");
+        }
+
         _ = Task.Run(async () =>
         {
             try
@@ -67,9 +76,24 @@ public class PhysicalReleaseGuardController : ControllerBase
             {
                 _logger.LogError(ex, "Error scanning library '{LibraryName}' ({LibraryId})", libraryFolder.Name, libraryId);
             }
+            finally
+            {
+                _activeScans.TryRemove(normalizedLibraryId, out _);
+            }
         });
 
         return Accepted();
+    }
+
+    /// <summary>
+    /// Gets the scan status for a library.
+    /// </summary>
+    [HttpGet("ScanLibrary/{libraryId}/Status")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult GetScanStatus(string libraryId)
+    {
+        var normalized = NormalizeLibraryId(libraryId);
+        return Ok(new ScanStatusResponse { Scanning = _activeScans.ContainsKey(normalized) });
     }
 
     private async Task ScanLibraryItemsAsync(BaseItem libraryFolder, string normalizedLibraryId)
@@ -182,4 +206,16 @@ public class PhysicalReleaseGuardController : ControllerBase
             .Replace("-", string.Empty, StringComparison.Ordinal)
             .ToLower(CultureInfo.InvariantCulture);
     }
+}
+
+/// <summary>
+/// Response model for the scan status endpoint.
+/// </summary>
+public class ScanStatusResponse
+{
+    /// <summary>
+    /// Gets or sets a value indicating whether a scan is currently running for this library.
+    /// </summary>
+    [JsonPropertyName("Scanning")]
+    public bool Scanning { get; set; }
 }

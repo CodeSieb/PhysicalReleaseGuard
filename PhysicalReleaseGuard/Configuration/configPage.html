@@ -380,6 +380,8 @@
                         renderItemExclusions(config)
                     ]);
                 }).then(function () {
+                    refreshScanStatus();
+                    setInterval(refreshScanStatus, 3000);
                     Dashboard.hideLoadingMsg();
                 }).catch(function () {
                     Dashboard.hideLoadingMsg();
@@ -388,9 +390,28 @@
 
             document.getElementById("txtItemFilter").addEventListener("input", applyItemFilter);
 
+            function refreshScanStatus() {
+                var buttons = document.querySelectorAll(".scanLibraryBtn[disabled]");
+                if (buttons.length === 0) return;
+
+                buttons.forEach(function (btn) {
+                    var libraryId = btn.dataset.libraryId;
+                    if (!libraryId) return;
+
+                    ApiClient.getJSON(
+                        ApiClient.getUrl("PhysicalReleaseGuard/ScanLibrary/" + encodeURIComponent(libraryId) + "/Status")
+                    ).then(function (status) {
+                        if (!status.Scanning) {
+                            btn.disabled = false;
+                            btn.textContent = "Scan Now";
+                        }
+                    });
+                });
+            }
+
             document.querySelector(".pluginConfigurationForm").addEventListener("click", function (e) {
                 var btn = e.target.closest(".scanLibraryBtn");
-                if (!btn) return;
+                if (!btn || btn.disabled) return;
 
                 var libraryId = btn.dataset.libraryId;
                 if (!libraryId) return;
@@ -401,9 +422,6 @@
                 ApiClient.ajax({
                     type: "POST",
                     url: ApiClient.getUrl("PhysicalReleaseGuard/ScanLibrary/" + encodeURIComponent(libraryId))
-                }).then(function () {
-                    btn.textContent = "Scan Now";
-                    btn.disabled = false;
                 }).catch(function () {
                     btn.textContent = "Scan Now";
                     btn.disabled = false;
