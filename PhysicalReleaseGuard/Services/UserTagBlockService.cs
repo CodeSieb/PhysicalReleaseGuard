@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using Jellyfin.Database.Implementations.Entities;
+using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -8,6 +10,8 @@ namespace PhysicalReleaseGuard.Services;
 /// <summary>
 /// Background service that monitors for newly created users and automatically
 /// adds the plugin's configured tag to their BlockedTags in Parental Control.
+/// BlockedTags in Jellyfin 10.11 are stored as Preference entries with
+/// PreferenceKind.BlockedTags, not via UpdatePolicyAsync.
 /// </summary>
 public class UserTagBlockService : IHostedService
 {
@@ -124,7 +128,8 @@ public class UserTagBlockService : IHostedService
     }
 
     /// <summary>
-    /// Applies the configured tag to the BlockedTags of a single user.
+    /// Applies the configured tag to the BlockedTags of a single user by adding
+    /// a Preference entry with PreferenceKind.BlockedTags.
     /// </summary>
     public async Task ApplyBlockedTagAsync(Guid userId, string tagName, CancellationToken cancellationToken = default)
     {
@@ -135,27 +140,31 @@ public class UserTagBlockService : IHostedService
             return;
         }
 
-        // Read the current policy via GetUserDto which includes the full UserPolicy.
-        var userDto = _userManager.GetUserDto(user, string.Empty);
-        var policy = userDto.Policy;
-        if (policy == null)
-        {
-            _logger.LogWarning("Cannot apply blocked tag: user '{UserName}' has no policy.", user.Username);
-            return;
-        }
-
-        var blockedTags = policy.BlockedTags ?? Array.Empty<string>();
-
-        if (blockedTags.Contains(tagName, StringComparer.OrdinalIgnoreCase))
+        if (HasBlockedTag(user, tagName))
         {
             _logger.LogDebug("User '{UserName}' already has tag '{TagName}' blocked.", user.Username, tagName);
             return;
         }
 
-        policy.BlockedTags = blockedTags.Concat(new[] { tagName }).ToArray();
-        await _userManager.UpdatePolicyAsync(userId, policy).ConfigureAwait(false);
+        // Add a new Preference entry for the blocked tag.
+        user.Preferences.Add(new Preference(PreferenceKind.BlockedTags, tagName));
 
-        _logger.LogInformation("Added '{TagName}' to BlockedTags for user '{UserName}'.", tagName, user.Username);
+        await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
+
+        // Verify the tag was actually persisted.
+        var verifyUser = _userManager.GetUserById(userId);
+        var persisted = verifyUser != null && HasBlockedTag(verifyUser, tagName);
+        if (persisted)
+        {
+            _logger.LogInformation("Added '{TagName}' to BlockedTags for user '{UserName}'.", tagName, user.Username);
+        }
+        else
+        {
+            _logger.LogWarning("Failed to persist '{TagName}' in BlockedTags for user '{UserName}'. " +
+                "The Jellyfin UserManager may not persist Preference changes through UpdateUserAsync. " +
+                "Try using the 'Apply blocked tag to all existing users' button on the config page, " +
+                "or set the tag manually in the user's Parental Control settings.", tagName, user.Username);
+        }
     }
 
     /// <summary>
@@ -178,23 +187,16 @@ public class UserTagBlockService : IHostedService
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var userDto = _userManager.GetUserDto(user, string.Empty);
-            var policy = userDto.Policy;
-            if (policy == null)
-            {
-                continue;
-            }
-
-            var blockedTags = policy.BlockedTags ?? Array.Empty<string>();
-            if (blockedTags.Contains(tagName, StringComparer.OrdinalIgnoreCase))
+            if (HasBlockedTag(user, tagName))
             {
                 continue;
             }
 
             try
             {
-                policy.BlockedTags = blockedTags.Concat(new[] { tagName }).ToArray();
-                await _userManager.UpdatePolicyAsync(user.Id, policy).ConfigureAwait(false);
+                user.Preferences.Add(new Preference(PreferenceKind.BlockedTags, tagName));
+
+                await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
                 modified++;
 
                 _logger.LogInformation("Added '{TagName}' to BlockedTags for user '{UserName}'.", tagName, user.Username);
@@ -209,5 +211,11 @@ public class UserTagBlockService : IHostedService
             modified, allUsers.Count);
 
         return modified;
+    }
+
+    private static bool HasBlockedTag(User user, string tagName)
+    {
+        return user.Preferences?.Any(p => p.Kind == PreferenceKind.BlockedTags
+            && string.Equals(p.Value, tagName, StringComparison.OrdinalIgnoreCase)) == true;
     }
 }
