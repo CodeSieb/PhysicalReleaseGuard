@@ -14,6 +14,9 @@ public class LibraryWatcherService : IHostedService
     private readonly IHiddenTagService _hiddenTagService;
     private readonly ILogger<LibraryWatcherService> _logger;
 
+    private SemaphoreSlim? _autoScanSemaphore;
+    private CancellationTokenSource? _stopCts;
+
     public LibraryWatcherService(
         ILibraryManager libraryManager,
         IHiddenTagService hiddenTagService,
@@ -27,13 +30,31 @@ public class LibraryWatcherService : IHostedService
     public Task StartAsync(CancellationToken cancellationToken)
     {
         _libraryManager.ItemAdded += OnItemAdded;
-        _logger.LogInformation("LibraryWatcherService initialized.");
+        _stopCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
+        var config = Plugin.Instance?.Configuration;
+        var parallelism = Math.Max(1, config?.MaxDegreeOfParallelism ?? 4);
+        _autoScanSemaphore = new SemaphoreSlim(parallelism, parallelism);
+
+        _logger.LogInformation(
+            "LibraryWatcherService initialized. Auto-scan parallelism: {Parallelism}.",
+            parallelism);
         return Task.CompletedTask;
     }
 
     public Task StopAsync(CancellationToken cancellationToken)
     {
         _libraryManager.ItemAdded -= OnItemAdded;
+
+        try
+        {
+            _stopCts?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // already disposed
+        }
+
         return Task.CompletedTask;
     }
 
@@ -89,13 +110,41 @@ public class LibraryWatcherService : IHostedService
 
     private async Task ProcessItemAsync(BaseItem item, string tagName, string? region)
     {
+        var semaphore = _autoScanSemaphore;
+        var ct = _stopCts?.Token ?? CancellationToken.None;
+        if (semaphore is null)
+        {
+            // Service not started yet — nothing to do
+            return;
+        }
+
         try
         {
-            // Auto-scan never uses dry-run — new items should always be tagged
+            await semaphore.WaitAsync(ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        try
+        {
+            // Auto-scan never uses dry-run — new items should always be tagged.
+            // Auto-scan does NOT use a circuit breaker (per-item failures should not block other items).
             var wasModified = item switch
             {
-                Movie movie => await _hiddenTagService.ProcessMovieAsync(movie, tagName, dryRun: false, region: region).ConfigureAwait(false),
-                Series series => await _hiddenTagService.ProcessSeriesAsync(series, tagName, dryRun: false, region: region).ConfigureAwait(false),
+                Movie movie => await _hiddenTagService.ProcessMovieAsync(
+                    movie,
+                    tagName,
+                    dryRun: false,
+                    region: region,
+                    cancellationToken: ct).ConfigureAwait(false),
+                Series series => await _hiddenTagService.ProcessSeriesAsync(
+                    series,
+                    tagName,
+                    dryRun: false,
+                    region: region,
+                    cancellationToken: ct).ConfigureAwait(false),
                 _ => false
             };
 
@@ -114,9 +163,29 @@ public class LibraryWatcherService : IHostedService
                     tagName);
             }
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Plugin stopping — silent.
+        }
+        catch (CircuitOpenException)
+        {
+            // Auto-scan does not use a breaker, so this is unexpected — log and continue.
+            _logger.LogDebug("Auto-scan: unexpected circuit-open exception for '{Item}'.", item.Name);
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Auto-scan error processing '{Item}'.", item.Name);
+        }
+        finally
+        {
+            try
+            {
+                semaphore.Release();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Service stopped mid-flight.
+            }
         }
     }
 

@@ -40,15 +40,17 @@ public interface ITmdbService
     /// Returns null if the series data cannot be retrieved.
     /// </summary>
     Task<bool?> HasSeriesPhysicalReleaseAsync(int tmdbId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Probes a TMDb ID to determine whether it corresponds to a movie or a TV series.
+    /// Returns the lowercase kind ("movie", "series") or null if neither is found.
+    /// </summary>
+    Task<string?> ProbeTmdbIdAsync(int tmdbId, CancellationToken cancellationToken = default);
 }
 
 public class TmdbService : ITmdbService
 {
-    private static readonly HttpClient _httpClient = new()
-    {
-        Timeout = TimeSpan.FromSeconds(15)
-    };
-
+    private readonly IResilientHttpClient _http;
     private readonly ILogger<TmdbService> _logger;
 
     // TMDb release type constants
@@ -59,8 +61,9 @@ public class TmdbService : ITmdbService
     // TMDb TV episode group type 3 represents DVD ordering.
     private const int DvdEpisodeGroupType = 3;
 
-    public TmdbService(ILogger<TmdbService> logger)
+    public TmdbService(IResilientHttpClient http, ILogger<TmdbService> logger)
     {
+        _http = http;
         _logger = logger;
     }
 
@@ -95,11 +98,13 @@ public class TmdbService : ITmdbService
 
             _logger.LogDebug("Searching TMDb for movie: {Title} ({Year})", title, year);
 
-            var response = await _httpClient.GetAsync(url, cancellationToken).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
+            var responseBody = await _http.GetStringAsync(url, cancellationToken).ConfigureAwait(false);
+            if (responseBody is null)
+            {
+                return null;
+            }
 
-            var content = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            var searchResult = JsonSerializer.Deserialize<TmdbSearchResponse>(content, JsonOptions.Default);
+            var searchResult = JsonSerializer.Deserialize<TmdbSearchResponse>(responseBody, JsonOptions.Default);
 
             if (searchResult?.Results == null || searchResult.Results.Count == 0)
             {
@@ -138,11 +143,6 @@ public class TmdbService : ITmdbService
             _logger.LogError(ex, "HTTP error searching TMDb for {Title} ({Year})", title, year);
             return null;
         }
-        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            _logger.LogWarning("TMDb search timed out for {Title} ({Year})", title, year);
-            return null;
-        }
         catch (JsonException ex)
         {
             _logger.LogError(ex, "Failed to parse TMDb search response for {Title} ({Year})", title, year);
@@ -179,11 +179,13 @@ public class TmdbService : ITmdbService
 
             _logger.LogDebug("Searching TMDb for series: {Title} ({Year})", title, firstAirYear);
 
-            var response = await _httpClient.GetAsync(url, cancellationToken).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
+            var responseBody = await _http.GetStringAsync(url, cancellationToken).ConfigureAwait(false);
+            if (responseBody is null)
+            {
+                return null;
+            }
 
-            var content = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            var searchResult = JsonSerializer.Deserialize<TmdbSeriesSearchResponse>(content, JsonOptions.Default);
+            var searchResult = JsonSerializer.Deserialize<TmdbSeriesSearchResponse>(responseBody, JsonOptions.Default);
 
             if (searchResult?.Results == null || searchResult.Results.Count == 0)
             {
@@ -221,11 +223,6 @@ public class TmdbService : ITmdbService
             _logger.LogError(ex, "HTTP error searching TMDb for series {Title} ({Year})", title, firstAirYear);
             return null;
         }
-        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            _logger.LogWarning("TMDb series search timed out for {Title} ({Year})", title, firstAirYear);
-            return null;
-        }
         catch (JsonException ex)
         {
             _logger.LogError(ex, "Failed to parse TMDb series search response for {Title} ({Year})", title, firstAirYear);
@@ -249,11 +246,15 @@ public class TmdbService : ITmdbService
 
             _logger.LogDebug("Fetching release dates for TMDb ID: {TmdbId} (region: {Region})", tmdbId, region ?? "all");
 
-            var response = await _httpClient.GetAsync(url, cancellationToken).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
+            var responseBody = await _http.GetStringAsync(url, cancellationToken).ConfigureAwait(false);
+            if (responseBody is null)
+            {
+                // 404 from TMDb for this ID: treat as "no release data" rather than a hard failure.
+                _logger.LogDebug("No release date data for TMDb ID: {TmdbId}", tmdbId);
+                return false;
+            }
 
-            var content = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            var releaseData = JsonSerializer.Deserialize<TmdbReleaseDatesResponse>(content, JsonOptions.Default);
+            var releaseData = JsonSerializer.Deserialize<TmdbReleaseDatesResponse>(responseBody, JsonOptions.Default);
 
             if (releaseData?.Results == null || releaseData.Results.Count == 0)
             {
@@ -269,11 +270,6 @@ public class TmdbService : ITmdbService
         catch (HttpRequestException ex)
         {
             _logger.LogError(ex, "HTTP error fetching release dates for TMDb ID: {TmdbId}", tmdbId);
-            return null;
-        }
-        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            _logger.LogWarning("TMDb release dates request timed out for ID: {TmdbId}", tmdbId);
             return null;
         }
         catch (JsonException ex)
@@ -299,11 +295,14 @@ public class TmdbService : ITmdbService
 
             _logger.LogDebug("Fetching episode groups for TMDb series ID: {TmdbId}", tmdbId);
 
-            var response = await _httpClient.GetAsync(url, cancellationToken).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
+            var responseBody = await _http.GetStringAsync(url, cancellationToken).ConfigureAwait(false);
+            if (responseBody is null)
+            {
+                _logger.LogDebug("No episode group data for TMDb series ID: {TmdbId}", tmdbId);
+                return false;
+            }
 
-            var content = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            var episodeGroups = JsonSerializer.Deserialize<TmdbEpisodeGroupsResponse>(content, JsonOptions.Default);
+            var episodeGroups = JsonSerializer.Deserialize<TmdbEpisodeGroupsResponse>(responseBody, JsonOptions.Default);
 
             if (episodeGroups?.Results == null || episodeGroups.Results.Count == 0)
             {
@@ -323,16 +322,76 @@ public class TmdbService : ITmdbService
             _logger.LogError(ex, "HTTP error fetching episode groups for TMDb series ID: {TmdbId}", tmdbId);
             return null;
         }
-        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            _logger.LogWarning("TMDb episode groups request timed out for series ID: {TmdbId}", tmdbId);
-            return null;
-        }
         catch (JsonException ex)
         {
             _logger.LogError(ex, "Failed to parse TMDb episode groups response for series ID: {TmdbId}", tmdbId);
             return null;
         }
+    }
+
+    /// <inheritdoc />
+    public async Task<string?> ProbeTmdbIdAsync(int tmdbId, CancellationToken cancellationToken = default)
+    {
+        var apiKey = GetApiKey();
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            return null;
+        }
+
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var linkedToken = linkedCts.Token;
+
+        var movieProbe = ProbeOneKindAsync(tmdbId, "movie", linkedToken);
+        var seriesProbe = ProbeOneKindAsync(tmdbId, "series", linkedToken);
+
+        var pending = new List<Task<(string Kind, int? Id)>>
+        {
+            Annotate(movieProbe, "movie"),
+            Annotate(seriesProbe, "series"),
+        };
+
+        while (pending.Count > 0)
+        {
+            var winner = await Task.WhenAny(pending).ConfigureAwait(false);
+            pending.Remove(winner);
+
+            try
+            {
+                var result = await winner.ConfigureAwait(false);
+                if (result.Id is not null)
+                {
+                    try { linkedCts.Cancel(); } catch (ObjectDisposedException) { }
+                    return result.Kind;
+                }
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogDebug(ex, "TMDb probe failed for ID {Id}", tmdbId);
+            }
+            catch (OperationCanceledException) when (linkedToken.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                // Linked cancellation from `linkedCts.Cancel()` — keep iterating to see the other branch's result.
+            }
+        }
+
+        return null;
+    }
+
+    private async Task<int?> ProbeOneKindAsync(int tmdbId, string kind, CancellationToken cancellationToken)
+    {
+        var apiKey = GetApiKey();
+        var url = kind == "movie"
+            ? $"https://api.themoviedb.org/3/movie/{tmdbId}?api_key={Uri.EscapeDataString(apiKey!)}"
+            : $"https://api.themoviedb.org/3/tv/{tmdbId}?api_key={Uri.EscapeDataString(apiKey!)}";
+
+        var body = await _http.GetStringAsync(url, cancellationToken).ConfigureAwait(false);
+        return body is null ? (int?)null : tmdbId;
+    }
+
+    private static async Task<(string Kind, int? Id)> Annotate(Task<int?> inner, string kind)
+    {
+        var v = await inner.ConfigureAwait(false);
+        return (kind, v);
     }
 
     private static bool IsPhysicalEpisodeGroup(TmdbEpisodeGroup group)
@@ -386,15 +445,17 @@ public class TmdbService : ITmdbService
 
             _logger.LogDebug("Fetching TMDb country list.");
 
-            var response = await _httpClient.GetAsync(url, cancellationToken).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
+            var responseBody = await _http.GetStringAsync(url, cancellationToken).ConfigureAwait(false);
+            if (responseBody is null)
+            {
+                return Array.Empty<TmdbCountry>();
+            }
 
-            var content = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            var countries = JsonSerializer.Deserialize<List<TmdbCountry>>(content, JsonOptions.Default);
+            var countries = JsonSerializer.Deserialize<List<TmdbCountry>>(responseBody, JsonOptions.Default);
 
             return (IReadOnlyList<TmdbCountry>)(countries ?? new List<TmdbCountry>());
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        catch (Exception ex) when (ex is HttpRequestException or JsonException)
         {
             _logger.LogError(ex, "Error fetching TMDb countries.");
             return Array.Empty<TmdbCountry>();
@@ -526,7 +587,7 @@ internal class TmdbReleaseDate
     public List<string>? Descriptors { get; set; }
 
     [JsonPropertyName("iso_639_1")]
-    public string Iso639_1 { get; set; } = string.Empty;
+    public string Iso6391 { get; set; } = string.Empty;
 
     [JsonPropertyName("note")]
     public string? Note { get; set; }

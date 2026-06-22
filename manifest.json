@@ -8,6 +8,14 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.11.0.0",
+        "changelog": "Performance & reliability improvements: polite TMDb client (configurable rate limit, retries with exponential backoff + jitter), bounded-parallel scans, optional per-scan circuit breaker, persistent Unmatched TMDb Items panel on the config page with per-item retry and manual TMDb ID pinning.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/plugin/PhysicalReleaseGuard.zip",
+        "checksum": "84e4c83fe1822957f34728ab1d96126d",
+        "timestamp": "2026-06-22T00:00:00Z"
+      },
+      {
         "version": "1.10.0.0",
         "changelog": "Auto-block tag for new users in Parental Control. Adds Parental Control section with toggle and apply-to-all-users button.",
         "targetAbi": "10.11.0.0",
@@ -37,7 +45,7 @@
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/plugin/PhysicalReleaseGuard.zip",
         "checksum": "e0a3506a34f7ef8c87030d7075fe6681",
-        "timestamp": "2026-06-10T00:00:00Z"
+        "timestamp": "2026-06-12T00:00:00Z"
       },
       {
         "version": "1.4.0.0",

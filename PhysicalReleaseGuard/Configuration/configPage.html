@@ -84,6 +84,58 @@
                     </div>
                     <br />
                     <div class="sectionTitleContainer">
+                        <h2 class="sectionTitle">Performance & Reliability</h2>
+                    </div>
+                    <div class="inputContainer">
+                        <input is="emby-input" id="txtMaxRequestsPerSecond" type="number" min="1" max="50" label="Max TMDb requests per second" />
+                        <div class="fieldDescription">
+                            Token-bucket rate limit applied across all scans and auto-adds. Default 4 keeps you polite; values above 10 risk TMDb throttling.
+                        </div>
+                    </div>
+                    <div class="inputContainer">
+                        <input is="emby-input" id="txtMaxDegreeOfParallelism" type="number" min="1" max="32" label="Max parallelism" />
+                        <div class="fieldDescription">
+                            Maximum number of items processed in parallel during a scan. Default 4. The same cap also throttles auto-scan-on-add.
+                        </div>
+                    </div>
+                    <div class="inputContainer">
+                        <input is="emby-input" id="txtMaxRetriesPerItem" type="number" min="0" max="10" label="Max retries per TMDb request" />
+                        <div class="fieldDescription">
+                            How many times to retry a single TMDb request before giving up. Each retry doubles the backoff (with jitter). Default 3.
+                        </div>
+                    </div>
+                    <div class="inputContainer">
+                        <input is="emby-input" id="txtRetryInitialDelayMs" type="number" min="50" max="5000" label="Initial retry delay (ms)" />
+                        <div class="fieldDescription">
+                            First retry waits at least this long; subsequent retries double it (capped at 30 s). Default 500.
+                        </div>
+                    </div>
+                    <div class="checkboxContainer">
+                        <label>
+                            <input is="emby-checkbox" id="chkEnableCircuitBreaker" type="checkbox" />
+                            <span>Enable per-scan circuit breaker</span>
+                        </label>
+                        <div class="fieldDescription">
+                            When enabled, a single scan aborts after the threshold below consecutive TMDb failures. The next scan starts with a clean slate.
+                        </div>
+                    </div>
+                    <div class="inputContainer">
+                        <input is="emby-input" id="txtCircuitBreakerThreshold" type="number" min="1" max="100" label="Circuit breaker threshold" />
+                        <div class="fieldDescription">
+                            Number of consecutive TMDb failures that trip the circuit breaker mid-scan. Default 10.
+                        </div>
+                    </div>
+                    <div class="checkboxContainer">
+                        <label>
+                            <input is="emby-checkbox" id="chkTrackUnmatchedItems" type="checkbox" />
+                            <span>Track unmatched TMDb items</span>
+                        </label>
+                        <div class="fieldDescription">
+                            When enabled, items the matcher could not resolve against TMDb are recorded and surfaced in the "Unmatched TMDb Items" panel below.
+                        </div>
+                    </div>
+                    <br />
+                    <div class="sectionTitleContainer">
                         <h2 class="sectionTitle">Libraries</h2>
                     </div>
                     <div id="libraryConfigContainer"></div>
@@ -100,6 +152,25 @@
                     <div id="itemExclusionsContainer" class="checkboxListContainer" style="max-height: 28em; overflow-y: auto;"></div>
                     <div class="fieldDescription">
                         Selected movies and series are skipped entirely by the scheduled scan. The plugin will not add or remove the configured tag for those items.
+                    </div>
+                    <br />
+                    <div class="sectionTitleContainer">
+                        <h2 class="sectionTitle">Unmatched TMDb Items</h2>
+                    </div>
+                    <div id="unmatchedItemsSummary" class="fieldDescription"></div>
+                    <div id="unmatchedItemsContainer" class="checkboxListContainer" style="max-height: 28em; overflow-y: auto; border:1px solid #444;border-radius:4px;padding:.5em;"></div>
+                    <div class="inputContainer">
+                        <input is="emby-input" id="txtUnmatchedItemFilter" type="text" label="Filter unmatched items" />
+                    </div>
+                    <button is="emby-button" id="btnRefreshUnmatched" type="button" class="raised block">
+                        <span>Refresh</span>
+                    </button>
+                    <button is="emby-button" id="btnClearUnmatched" type="button" class="raised block">
+                        <span>Clear all</span>
+                    </button>
+                    <div id="unmatchedItemsResult" style="margin-top:.5em;display:none;"></div>
+                    <div class="fieldDescription">
+                        Items the matcher could not resolve automatically (no TMDb search match, no release data, or persistent TMDb errors). Use per-row Retry, or pin a TMDb ID manually to bypass the search step on the next scan.
                     </div>
                     <br />
                     <div class="sectionTitleContainer">
@@ -137,6 +208,8 @@
             var itemsLoaded = false;
             var countriesLoaded = false;
 
+            var unmatchedEntries = [];
+
             function populateScanHourDropdown() {
                 var select = document.getElementById("selScanHour");
                 select.innerHTML = "";
@@ -158,7 +231,6 @@
                     ApiClient.getUrl("PhysicalReleaseGuard/Countries")
                 ).then(function (countries) {
                     countriesLoaded = true;
-                    // Keep the default option, remove the rest
                     select.innerHTML = "";
                     var defaultOpt = document.createElement("option");
                     defaultOpt.value = "";
@@ -167,9 +239,8 @@
 
                     if (!countries || countries.length === 0) return;
 
-                    // Sort by English name
                     countries.sort(function (a, b) {
-                        return (a.EnglishName || "").localeCompare(b.EnglishName || "");
+                        return (a.EnglishName || a.english_name || "").localeCompare(b.EnglishName || b.english_name || "");
                     });
 
                     countries.forEach(function (c) {
@@ -194,7 +265,6 @@
                 if (ApiClient.getVirtualFolders) {
                     return ApiClient.getVirtualFolders();
                 }
-
                 return ApiClient.getJSON(ApiClient.getUrl("Library/VirtualFolders"));
             }
 
@@ -226,19 +296,12 @@
                 if (ApiClient.getItems && userId) {
                     return ApiClient.getItems(userId, query);
                 }
-
                 return ApiClient.getJSON(ApiClient.getUrl("Items", query));
             }
 
             function getItemsFromResult(result) {
-                if (!result) {
-                    return [];
-                }
-
-                if (Array.isArray(result)) {
-                    return result;
-                }
-
+                if (!result) return [];
+                if (Array.isArray(result)) return result;
                 return result.Items || result.items || [];
             }
 
@@ -271,11 +334,7 @@
                 var itemType = getItemType(item).toLowerCase();
                 var itemName = normalizeItemName(getItemName(item));
                 var productionYear = getItemProductionYear(item);
-
-                if (!itemType || !itemName) {
-                    return "";
-                }
-
+                if (!itemType || !itemName) return "";
                 return [itemType, itemName, productionYear].join("|");
             }
 
@@ -284,15 +343,8 @@
                 var type = getItemType(item);
                 var year = getItemProductionYear(item);
                 var suffix = [];
-
-                if (year) {
-                    suffix.push(year);
-                }
-
-                if (type) {
-                    suffix.push(type);
-                }
-
+                if (year) suffix.push(year);
+                if (type) suffix.push(type);
                 return suffix.length ? name + " (" + suffix.join(", ") + ")" : name;
             }
 
@@ -308,7 +360,6 @@
 
             function renderLibraryConfig(config) {
                 var container = document.getElementById("libraryConfigContainer");
-
                 librariesLoaded = false;
                 container.textContent = "Loading libraries...";
 
@@ -321,13 +372,11 @@
                         return;
                     }
 
-                    // Build per-library lookup from config
                     var configByLibraryId = {};
                     (config.PerLibraryConfig || []).forEach(function (lc) {
                         configByLibraryId[normalizeLibraryId(lc.LibraryId)] = lc;
                     });
 
-                    // Migrate old ExcludedLibraryIds/Names if PerLibraryConfig is empty
                     var hasOldExclusions = (config.ExcludedLibraryIds || []).length > 0 ||
                         (config.ExcludedLibraryNames || []).length > 0;
                     var oldExcludedIds = (config.ExcludedLibraryIds || []).map(normalizeLibraryId);
@@ -356,18 +405,16 @@
                             customTagName = "";
                         }
 
-                        // Library row container
                         var row = document.createElement("div");
                         row.className = "libraryConfigItem";
                         row.style.cssText = "margin-bottom:1em;padding:.5em;border:1px solid #444;border-radius:4px;";
 
-                        // Enabled checkbox + name + scan button
                         var headerRow = document.createElement("div");
-                        headerRow.style.cssText = "display:flex;align-items:center;justify-content:space-between;margin:0 0 .5em;";
+                        headerRow.style.cssText = "display:flex; align-items:center; justify-content:space-between; margin:0 0 .5em;";
 
                         var label = document.createElement("label");
                         label.className = "checkboxContainer";
-                        label.style.cssText = "display:flex;align-items:center;margin:0;";
+                        label.style.cssText = "display:flex; align-items:center; margin:0;";
 
                         var checkbox = createCheckbox();
                         checkbox.type = "checkbox";
@@ -392,7 +439,6 @@
                         headerRow.appendChild(scanBtn);
                         row.appendChild(headerRow);
 
-                        // Custom tag name input
                         var inputContainer = document.createElement("div");
                         inputContainer.className = "inputContainer";
                         inputContainer.style.cssText = "margin:0;";
@@ -479,6 +525,106 @@
                 });
             }
 
+            // ---- Unmatched TMDb items panel ----
+
+            function applyUnmatchedFilter() {
+                var filter = normalizeItemName(document.getElementById("txtUnmatchedItemFilter").value);
+                var rows = Array.prototype.slice.call(document.querySelectorAll(".unmatchedRow"));
+                rows.forEach(function (row) {
+                    var searchText = row.dataset.searchText || "";
+                    row.style.display = !filter || searchText.indexOf(filter) !== -1 ? "block" : "none";
+                });
+            }
+
+            function renderUnmatchedItems(items) {
+                unmatchedEntries = items || [];
+                var container = document.getElementById("unmatchedItemsContainer");
+                var summary = document.getElementById("unmatchedItemsSummary");
+                container.innerHTML = "";
+
+                if (!unmatchedEntries.length) {
+                    summary.textContent = "No unmatched items right now. Items will appear here after a scan if TMDb couldn't resolve them.";
+                    return;
+                }
+
+                summary.textContent = "Showing " + unmatchedEntries.length + " unmatched item(s). Newest first.";
+
+                unmatchedEntries.forEach(function (entry) {
+                    var row = document.createElement("div");
+                    row.className = "unmatchedRow";
+                    var searchBlob = (entry.ItemName || "") + " " + (entry.ItemType || "") + " " + (entry.Reason || "") + " " + (entry.Message || "");
+                    row.dataset.searchText = normalizeItemName(searchBlob);
+                    row.style.cssText = "padding:.5em; margin:0 0 .75em; border:1px solid #444; border-radius:4px;";
+
+                    var header = document.createElement("div");
+                    header.style.cssText = "font-weight:600;";
+                    var yearSuffix = entry.ProductionYear ? " (" + entry.ProductionYear + ")" : "";
+                    var typeSuffix = entry.ItemType ? " [" + entry.ItemType + "]" : "";
+                    header.textContent = (entry.ItemName || "Unknown") + yearSuffix + typeSuffix;
+                    row.appendChild(header);
+
+                    var meta = document.createElement("div");
+                    meta.className = "fieldDescription";
+                    meta.textContent = "Reason: " + (entry.Reason || "Unknown");
+                    if (entry.Message) {
+                        meta.textContent += " — " + entry.Message;
+                    }
+                    row.appendChild(meta);
+
+                    var actions = document.createElement("div");
+                    actions.style.cssText = "display:flex; align-items:center; gap:.5em; margin-top:.5em;";
+
+                    var tmdbInput = document.createElement("input");
+                    tmdbInput.is = "emby-input";
+                    tmdbInput.type = "number";
+                    tmdbInput.className = "manualTmdbIdInput";
+                    tmdbInput.setAttribute("label", "TMDb ID");
+                    tmdbInput.placeholder = "e.g. 603";
+                    tmdbInput.dataset.itemId = entry.ItemId || "";
+                    tmdbInput.style.cssText = "max-width:10em;";
+
+                    var saveBtn = document.createElement("button");
+                    saveBtn.type = "button";
+                    saveBtn.className = "raised saveManualLinkBtn";
+                    saveBtn.textContent = "Save Link";
+                    saveBtn.dataset.itemId = entry.ItemId || "";
+
+                    var retryBtn = document.createElement("button");
+                    retryBtn.type = "button";
+                    retryBtn.className = "raised retryUnmatchedBtn";
+                    retryBtn.textContent = "Retry Lookup";
+                    retryBtn.dataset.itemId = entry.ItemId || "";
+
+                    actions.appendChild(tmdbInput);
+                    actions.appendChild(saveBtn);
+                    actions.appendChild(retryBtn);
+                    row.appendChild(actions);
+
+                    container.appendChild(row);
+                });
+
+                applyUnmatchedFilter();
+            }
+
+            function refreshUnmatchedItems() {
+                var summary = document.getElementById("unmatchedItemsSummary");
+                summary.textContent = "Loading unmatched items...";
+                ApiClient.getJSON(ApiClient.getUrl("PhysicalReleaseGuard/UnmatchedItems"))
+                    .then(function (items) {
+                        renderUnmatchedItems(items || []);
+                    })
+                    .catch(function () {
+                        summary.textContent = "Could not load unmatched items. Check server logs.";
+                    });
+            }
+
+            function showUnmatchedResult(message, isError) {
+                var div = document.getElementById("unmatchedItemsResult");
+                div.style.display = "block";
+                div.style.color = isError ? "#f44336" : "#4caf50";
+                div.textContent = message;
+            }
+
             page.addEventListener("pageshow", function () {
                 Dashboard.showLoadingMsg();
                 populateScanHourDropdown();
@@ -488,14 +634,21 @@
                     document.getElementById("chkAutoScanEnabled").checked = config.AutoScanEnabled === true;
                     document.getElementById("chkDryRunEnabled").checked = config.DryRunEnabled === true;
                     document.getElementById("chkAutoBlockTagForNewUsers").checked = config.AutoBlockTagForNewUsers === true;
+                    document.getElementById("chkEnableCircuitBreaker").checked = config.EnableCircuitBreaker !== false;
+                    document.getElementById("chkTrackUnmatchedItems").checked = config.TrackUnmatchedItems !== false;
                     document.getElementById("selScanHour").value = (config.ScanHour != null ? config.ScanHour : 3).toString();
                     document.getElementById("txtItemFilter").value = "";
+                    document.getElementById("txtMaxRequestsPerSecond").value = (config.MaxRequestsPerSecond != null ? config.MaxRequestsPerSecond : 4).toString();
+                    document.getElementById("txtMaxDegreeOfParallelism").value = (config.MaxDegreeOfParallelism != null ? config.MaxDegreeOfParallelism : 4).toString();
+                    document.getElementById("txtMaxRetriesPerItem").value = (config.MaxRetriesPerItem != null ? config.MaxRetriesPerItem : 3).toString();
+                    document.getElementById("txtRetryInitialDelayMs").value = (config.RetryInitialDelayMs != null ? config.RetryInitialDelayMs : 500).toString();
+                    document.getElementById("txtCircuitBreakerThreshold").value = (config.CircuitBreakerThreshold != null ? config.CircuitBreakerThreshold : 10).toString();
+
                     return Promise.all([
                         renderLibraryConfig(config),
                         renderItemExclusions(config),
                         loadCountries()
                     ]).then(function () {
-                        // Set preferred region after countries are loaded
                         if (countriesLoaded && config.PreferredRegion) {
                             document.getElementById("selPreferredRegion").value = config.PreferredRegion;
                         }
@@ -503,6 +656,7 @@
                 }).then(function () {
                     refreshScanStatus();
                     setInterval(refreshScanStatus, 3000);
+                    refreshUnmatchedItems();
                     Dashboard.hideLoadingMsg();
                 }).catch(function () {
                     Dashboard.hideLoadingMsg();
@@ -510,6 +664,91 @@
             });
 
             document.getElementById("txtItemFilter").addEventListener("input", applyItemFilter);
+            document.getElementById("txtUnmatchedItemFilter").addEventListener("input", applyUnmatchedFilter);
+
+            document.getElementById("btnRefreshUnmatched").addEventListener("click", function () {
+                refreshUnmatchedItems();
+            });
+
+            document.getElementById("btnClearUnmatched").addEventListener("click", function () {
+                if (!confirm("Clear all unmatched items?")) return;
+                var btn = document.getElementById("btnClearUnmatched");
+                btn.disabled = true;
+                btn.textContent = "Clearing...";
+                ApiClient.ajax({
+                    type: "POST",
+                    url: ApiClient.getUrl("PhysicalReleaseGuard/UnmatchedItems/Clear")
+                }).then(function () {
+                    showUnmatchedResult("Cleared.", false);
+                    refreshUnmatchedItems();
+                }).catch(function () {
+                    showUnmatchedResult("Could not clear. Check logs.", true);
+                }).finally(function () {
+                    btn.disabled = false;
+                    btn.textContent = "Clear all";
+                });
+            });
+
+            document.getElementById("unmatchedItemsContainer").addEventListener("click", function (e) {
+                var retryBtn = e.target.closest(".retryUnmatchedBtn");
+                if (retryBtn) {
+                    var itemId = retryBtn.dataset.itemId;
+                    retryBtn.disabled = true;
+                    var oldText = retryBtn.textContent;
+                    retryBtn.textContent = "Retrying...";
+                    ApiClient.ajax({
+                        type: "POST",
+                        url: ApiClient.getUrl("PhysicalReleaseGuard/UnmatchedItems/RetryLookup"),
+                        data: JSON.stringify({ ItemId: itemId }),
+                        contentType: "application/json"
+                    }).then(function (resp) {
+                        if (resp && resp.Resolved) {
+                            showUnmatchedResult("Resolved. Item removed from unmatched list.", false);
+                            refreshUnmatchedItems();
+                        } else {
+                            showUnmatchedResult("Still unmatched. Check server logs.", true);
+                            refreshUnmatchedItems();
+                        }
+                    }).catch(function () {
+                        showUnmatchedResult("Retry failed. Check server logs.", true);
+                    }).finally(function () {
+                        retryBtn.disabled = false;
+                        retryBtn.textContent = oldText;
+                    });
+                    return;
+                }
+
+                var saveBtn = e.target.closest(".saveManualLinkBtn");
+                if (saveBtn) {
+                    var row = saveBtn.closest(".unmatchedRow");
+                    var input = row ? row.querySelector(".manualTmdbIdInput") : null;
+                    if (!input) return;
+                    var tmdbId = parseInt(input.value, 10);
+                    if (!tmdbId || tmdbId <= 0) {
+                        showUnmatchedResult("Enter a valid TMDb ID first.", true);
+                        return;
+                    }
+                    var itemIdForSave = saveBtn.dataset.itemId;
+                    saveBtn.disabled = true;
+                    var oldSaveText = saveBtn.textContent;
+                    saveBtn.textContent = "Saving...";
+                    ApiClient.ajax({
+                        type: "POST",
+                        url: ApiClient.getUrl("PhysicalReleaseGuard/ManualLink"),
+                        data: JSON.stringify({ ItemId: itemIdForSave, TmdbId: tmdbId }),
+                        contentType: "application/json"
+                    }).then(function (resp) {
+                        showUnmatchedResult("Saved. TMDb ID " + resp.TmdbId + " pinned (" + resp.Kind + ").", false);
+                        refreshUnmatchedItems();
+                    }).catch(function (err) {
+                        var message = (err && err.responseJSON && err.responseJSON.message) || "Could not save manual link.";
+                        showUnmatchedResult(message, true);
+                    }).finally(function () {
+                        saveBtn.disabled = false;
+                        saveBtn.textContent = oldSaveText;
+                    });
+                }
+            });
 
             document.getElementById("btnApplyBlockedTag").addEventListener("click", function () {
                 var btn = document.getElementById("btnApplyBlockedTag");
@@ -586,6 +825,13 @@
                     config.AutoBlockTagForNewUsers = document.getElementById("chkAutoBlockTagForNewUsers").checked;
                     config.PreferredRegion = document.getElementById("selPreferredRegion").value || "";
                     config.ScanHour = parseInt(document.getElementById("selScanHour").value, 10) || 3;
+                    config.MaxRequestsPerSecond = Math.max(1, parseInt(document.getElementById("txtMaxRequestsPerSecond").value, 10) || 4);
+                    config.MaxDegreeOfParallelism = Math.max(1, parseInt(document.getElementById("txtMaxDegreeOfParallelism").value, 10) || 4);
+                    config.MaxRetriesPerItem = Math.max(0, parseInt(document.getElementById("txtMaxRetriesPerItem").value, 10) || 3);
+                    config.RetryInitialDelayMs = Math.max(50, parseInt(document.getElementById("txtRetryInitialDelayMs").value, 10) || 500);
+                    config.EnableCircuitBreaker = document.getElementById("chkEnableCircuitBreaker").checked;
+                    config.CircuitBreakerThreshold = Math.max(1, parseInt(document.getElementById("txtCircuitBreakerThreshold").value, 10) || 10);
+                    config.TrackUnmatchedItems = document.getElementById("chkTrackUnmatchedItems").checked;
 
                     if (librariesLoaded) {
                         var libraryRows = Array.prototype.slice.call(
@@ -602,7 +848,6 @@
                             };
                         }).filter(function (lc) { return !!lc.LibraryId; });
 
-                        // Keep ExcludedLibraryIds/Names in sync for backward compat
                         config.ExcludedLibraryIds = config.PerLibraryConfig
                             .filter(function (lc) { return !lc.Enabled; })
                             .map(function (lc) { return lc.LibraryId; });
@@ -625,9 +870,8 @@
                     }
 
                     ApiClient.updatePluginConfiguration(pluginId, config).then(function (result) {
-                        // Update scheduled task triggers via Jellyfin's built-in API
                         var scanHour = config.ScanHour || 3;
-                        var ticks = scanHour * 36000000000; // hours to .NET ticks
+                        var ticks = scanHour * 36000000000;
                         var trigger = {
                             type: "DailyTrigger",
                             timeOfDayTicks: ticks
@@ -637,9 +881,7 @@
                             url: ApiClient.getUrl("ScheduledTasks/Tasks/PhysicalReleaseGuardScan/Triggers"),
                             data: JSON.stringify([trigger]),
                             contentType: "application/json"
-                        }).catch(function () {
-                            // Non-critical: schedule update failed, user can adjust in Scheduled Tasks
-                        });
+                        }).catch(function () { });
 
                         Dashboard.processPluginConfigurationUpdateResult(result);
                     });

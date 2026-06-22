@@ -66,6 +66,7 @@ public class HiddenTagScanTask : IScheduledTask
         var config = Plugin.Instance.Configuration;
         var dryRun = config.DryRunEnabled;
         var region = string.IsNullOrWhiteSpace(config.PreferredRegion) ? null : config.PreferredRegion;
+        var maxParallelism = Math.Max(1, config.MaxDegreeOfParallelism);
 
         if (dryRun)
         {
@@ -76,6 +77,8 @@ public class HiddenTagScanTask : IScheduledTask
         {
             _logger.LogInformation("Preferred region: {Region}", region);
         }
+
+        _logger.LogInformation("Max parallelism: {MaxParallelism}", maxParallelism);
 
         var itemList = GetItemsToProcess();
         var total = itemList.Count;
@@ -90,38 +93,83 @@ public class HiddenTagScanTask : IScheduledTask
         }
 
         var perLibraryConfig = BuildPerLibraryConfigLookup();
+        var breaker = config.EnableCircuitBreaker
+            ? new CircuitBreaker(Math.Max(1, config.CircuitBreakerThreshold))
+            : null;
+
         var processed = 0;
         var modified = 0;
         var skipped = 0;
+        var breakerTripped = false;
+        var userCancelled = false;
 
-        foreach (var item in itemList)
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            try
+            var parallelOptions = new ParallelOptions
             {
-                var tagName = GetTagNameForItem(item, perLibraryConfig);
-                var wasModified = await ProcessItemAsync(item, tagName, dryRun, region, cancellationToken).ConfigureAwait(false);
+                CancellationToken = cancellationToken,
+                MaxDegreeOfParallelism = maxParallelism
+            };
 
-                if (wasModified)
+            await Parallel.ForEachAsync(itemList, parallelOptions, async (item, ct) =>
+            {
+                if (Volatile.Read(ref breakerTripped))
                 {
-                    modified++;
+                    return;
                 }
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error processing item: {Name}", item.Name);
-                skipped++;
-            }
 
-            processed++;
+                try
+                {
+                    var tagName = GetTagNameForItem(item, perLibraryConfig);
+                    var wasModified = await ProcessItemAsync(item, tagName, dryRun, region, ct, breaker)
+                        .ConfigureAwait(false);
 
-            var percent = (double)processed / total * 100;
-            progress.Report(percent);
+                    if (wasModified)
+                    {
+                        Interlocked.Increment(ref modified);
+                    }
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    Volatile.Write(ref userCancelled, true);
+                    throw;
+                }
+                catch (CircuitOpenException)
+                {
+                    Volatile.Write(ref breakerTripped, true);
+                    _logger.LogError(
+                        "Circuit breaker tripped after {Failures} consecutive failures. Aborting scan.",
+                        breaker?.FailureCount ?? 0);
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    Interlocked.Increment(ref skipped);
+                    _logger.LogError(ex, "Error processing item: {Name}", item.Name);
+                }
+                finally
+                {
+                    var done = Interlocked.Increment(ref processed);
+                    progress.Report((double)done / total * 100);
+                }
+            }).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(
+                "Physical Release Guard Scan cancelled after processing {Processed}/{Total} items.",
+                processed, total);
+            progress.Report(100);
+            return;
+        }
+
+        if (breakerTripped)
+        {
+            _logger.LogWarning(
+                "Physical Release Guard Scan aborted by circuit breaker. Processed: {Processed}, Modified: {Modified}, Skipped: {Skipped}",
+                processed, modified, skipped);
+            progress.Report(100);
+            return;
         }
 
         _logger.LogInformation(
@@ -131,12 +179,12 @@ public class HiddenTagScanTask : IScheduledTask
             skipped);
     }
 
-    private Task<bool> ProcessItemAsync(BaseItem item, string tagName, bool dryRun, string? region, CancellationToken cancellationToken)
+    private Task<bool> ProcessItemAsync(BaseItem item, string tagName, bool dryRun, string? region, CancellationToken cancellationToken, CircuitBreaker? breaker)
     {
         return item switch
         {
-            Movie movie => _hiddenTagService.ProcessMovieAsync(movie, tagName, dryRun, region, cancellationToken),
-            Series series => _hiddenTagService.ProcessSeriesAsync(series, tagName, dryRun, region, cancellationToken),
+            Movie movie => _hiddenTagService.ProcessMovieAsync(movie, tagName, dryRun, region, cancellationToken, breaker),
+            Series series => _hiddenTagService.ProcessSeriesAsync(series, tagName, dryRun, region, cancellationToken, breaker),
             _ => Task.FromResult(false)
         };
     }

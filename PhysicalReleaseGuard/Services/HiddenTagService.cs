@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
@@ -17,77 +18,132 @@ public interface IHiddenTagService
     /// and adding/removing the specified tag accordingly.
     /// Returns true if the item's tags were modified (or would be modified in dry-run mode).
     /// </summary>
-    Task<bool> ProcessMovieAsync(Movie movie, string tagName, bool dryRun = false, string? region = null, CancellationToken cancellationToken = default);
+    Task<bool> ProcessMovieAsync(
+        Movie movie,
+        string tagName,
+        bool dryRun = false,
+        string? region = null,
+        CancellationToken cancellationToken = default,
+        CircuitBreaker? breaker = null);
 
     /// <summary>
     /// Processes a single series, checking TMDb for physical release data
     /// and adding/removing the specified tag accordingly.
     /// Returns true if the item's tags were modified (or would be modified in dry-run mode).
     /// </summary>
-    Task<bool> ProcessSeriesAsync(Series series, string tagName, bool dryRun = false, string? region = null, CancellationToken cancellationToken = default);
+    Task<bool> ProcessSeriesAsync(
+        Series series,
+        string tagName,
+        bool dryRun = false,
+        string? region = null,
+        CancellationToken cancellationToken = default,
+        CircuitBreaker? breaker = null);
 }
 
 public class HiddenTagService : IHiddenTagService
 {
     private readonly ITmdbService _tmdbService;
+    private readonly IUnmatchedItemsStore _unmatchedStore;
     private readonly ILogger<HiddenTagService> _logger;
 
     public HiddenTagService(
         ITmdbService tmdbService,
+        IUnmatchedItemsStore unmatchedStore,
         ILogger<HiddenTagService> logger)
     {
         _tmdbService = tmdbService;
+        _unmatchedStore = unmatchedStore;
         _logger = logger;
     }
 
     /// <inheritdoc />
-    public async Task<bool> ProcessMovieAsync(Movie movie, string tagName, bool dryRun = false, string? region = null, CancellationToken cancellationToken = default)
+    public Task<bool> ProcessMovieAsync(
+        Movie movie,
+        string tagName,
+        bool dryRun = false,
+        string? region = null,
+        CancellationToken cancellationToken = default,
+        CircuitBreaker? breaker = null)
     {
         _logger.LogInformation("Processing movie: {Name} ({Year}){DryRun}", movie.Name, movie.ProductionYear, dryRun ? " [DRY RUN]" : string.Empty);
 
-        int? tmdbId = GetTmdbIdFromProviderIds(movie);
-
-        if (tmdbId == null)
+        var run = async () =>
         {
-            tmdbId = await _tmdbService.SearchMovieAsync(
-                movie.Name,
-                movie.ProductionYear,
-                cancellationToken).ConfigureAwait(false);
-        }
+            int? tmdbId = GetManualTmdbId(movie);
+            if (tmdbId is null)
+            {
+                tmdbId = GetTmdbIdFromProviderIds(movie);
+            }
+            if (tmdbId is null)
+            {
+                tmdbId = await _tmdbService.SearchMovieAsync(
+                    movie.Name,
+                    movie.ProductionYear,
+                    cancellationToken).ConfigureAwait(false);
+                if (tmdbId is null)
+                {
+                    await RecordUnmatchedAsync(movie, "MovieNoSearchResults", cancellationToken).ConfigureAwait(false);
+                }
+            }
 
-        return await ProcessItemAsync(
-            movie,
-            "movie",
-            tmdbId,
-            id => _tmdbService.HasPhysicalReleaseAsync(id, region, cancellationToken),
-            tagName,
-            dryRun,
-            cancellationToken).ConfigureAwait(false);
+            return await ProcessItemAsync(
+                movie,
+                "movie",
+                tmdbId,
+                id => _tmdbService.HasPhysicalReleaseAsync(id, region, cancellationToken),
+                tagName,
+                dryRun,
+                cancellationToken).ConfigureAwait(false);
+        };
+
+        return breaker is null
+            ? run()
+            : breaker.ExecuteAsync(cancellationToken, run);
     }
 
     /// <inheritdoc />
-    public async Task<bool> ProcessSeriesAsync(Series series, string tagName, bool dryRun = false, string? region = null, CancellationToken cancellationToken = default)
+    public Task<bool> ProcessSeriesAsync(
+        Series series,
+        string tagName,
+        bool dryRun = false,
+        string? region = null,
+        CancellationToken cancellationToken = default,
+        CircuitBreaker? breaker = null)
     {
         _logger.LogInformation("Processing series: {Name} ({Year}){DryRun}", series.Name, series.ProductionYear, dryRun ? " [DRY RUN]" : string.Empty);
 
-        int? tmdbId = GetTmdbIdFromProviderIds(series);
-
-        if (tmdbId == null)
+        var run = async () =>
         {
-            tmdbId = await _tmdbService.SearchSeriesAsync(
-                series.Name,
-                series.ProductionYear,
-                cancellationToken).ConfigureAwait(false);
-        }
+            int? tmdbId = GetManualTmdbId(series);
+            if (tmdbId is null)
+            {
+                tmdbId = GetTmdbIdFromProviderIds(series);
+            }
+            if (tmdbId is null)
+            {
+                tmdbId = await _tmdbService.SearchSeriesAsync(
+                    series.Name,
+                    series.ProductionYear,
+                    cancellationToken).ConfigureAwait(false);
+                if (tmdbId is null)
+                {
+                    await RecordUnmatchedAsync(series, "SeriesNoSearchResults", cancellationToken).ConfigureAwait(false);
+                }
+            }
 
-        return await ProcessItemAsync(
-            series,
-            "series",
-            tmdbId,
-            id => _tmdbService.HasSeriesPhysicalReleaseAsync(id, cancellationToken),
-            tagName,
-            dryRun,
-            cancellationToken).ConfigureAwait(false);
+            return await ProcessItemAsync(
+                series,
+                "series",
+                tmdbId,
+                id => _tmdbService.HasSeriesPhysicalReleaseAsync(id, cancellationToken),
+                tagName,
+                dryRun,
+                cancellationToken).ConfigureAwait(false);
+        };
+
+        return breaker is null
+            ? run()
+            : breaker.ExecuteAsync(cancellationToken, run);
     }
 
     private async Task<bool> ProcessItemAsync(
@@ -105,8 +161,23 @@ public class HiddenTagService : IHiddenTagService
             return false;
         }
 
-        var hasPhysicalRelease = await hasPhysicalReleaseAsync(tmdbId.Value)
-            .ConfigureAwait(false);
+        bool? hasPhysicalRelease;
+        try
+        {
+            hasPhysicalRelease = await hasPhysicalReleaseAsync(tmdbId.Value).ConfigureAwait(false);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "HTTP error fetching release data for {ItemType}: {Name} (TMDb ID: {TmdbId})", itemType, item.Name, tmdbId.Value);
+            await RecordUnmatchedAsync(item, "HttpError", $"{ex.Message}", cancellationToken).ConfigureAwait(false);
+            throw;
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogError(ex, "Failed to parse TMDb release response for {ItemType}: {Name}", itemType, item.Name);
+            await RecordUnmatchedAsync(item, "HttpError", $"Malformed JSON: {ex.Message}", cancellationToken).ConfigureAwait(false);
+            throw;
+        }
 
         if (hasPhysicalRelease == null)
         {
@@ -115,6 +186,7 @@ public class HiddenTagService : IHiddenTagService
                 itemType,
                 item.Name,
                 tmdbId.Value);
+            await RecordUnmatchedAsync(item, "ReleaseDataNull", "Release data endpoint returned null.", tmdbId.Value, cancellationToken).ConfigureAwait(false);
             return false;
         }
 
@@ -208,6 +280,91 @@ public class HiddenTagService : IHiddenTagService
         }
 
         return null;
+    }
+
+    private static int? GetManualTmdbId(BaseItem item)
+    {
+        var config = Plugin.Instance?.Configuration;
+        if (config is null)
+        {
+            return null;
+        }
+
+        var normalizedId = NormalizeItemId(item.Id.ToString());
+        foreach (var link in config.ManualTmdbLinks ?? Array.Empty<Configuration.ManualTmdbLink>())
+        {
+            if (string.Equals(NormalizeItemId(link.ItemId), normalizedId, StringComparison.OrdinalIgnoreCase))
+            {
+                return link.TmdbId;
+            }
+        }
+
+        return null;
+    }
+
+    private static string NormalizeItemId(string? itemId)
+    {
+        if (string.IsNullOrWhiteSpace(itemId))
+        {
+            return string.Empty;
+        }
+
+        return itemId
+            .Trim()
+            .Replace("-", string.Empty, StringComparison.Ordinal)
+            .ToLower(CultureInfo.InvariantCulture);
+    }
+
+    private async Task RecordUnmatchedAsync(BaseItem item, string reason, CancellationToken cancellationToken)
+    {
+        await RecordUnmatchedAsync(item, reason, string.Empty, null, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task RecordUnmatchedAsync(BaseItem item, string reason, string message, CancellationToken cancellationToken)
+    {
+        await RecordUnmatchedAsync(item, reason, message, null, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task RecordUnmatchedAsync(BaseItem item, string reason, string message, int? tmdbId, CancellationToken cancellationToken)
+    {
+        var config = Plugin.Instance?.Configuration;
+        if (config?.TrackUnmatchedItems != true)
+        {
+            return;
+        }
+
+        var entry = new UnmatchedItem
+        {
+            ItemId = item.Id.ToString(),
+            ItemName = item.Name ?? string.Empty,
+            ItemType = item.GetType().Name,
+            ProductionYear = item.ProductionYear,
+            Reason = reason,
+            Message = string.IsNullOrWhiteSpace(message)
+                ? BuildDefaultReason(item, tmdbId, reason)
+                : message
+        };
+
+        try
+        {
+            await _unmatchedStore.UpsertAsync(entry, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to record unmatched item {Name}", item.Name);
+        }
+    }
+
+    private static string BuildDefaultReason(BaseItem item, int? tmdbId, string reason)
+    {
+        return reason switch
+        {
+            "MovieNoSearchResults" => $"TMDb returned no movie match for '{item.Name}' ({item.ProductionYear}).",
+            "SeriesNoSearchResults" => $"TMDb returned no series match for '{item.Name}' ({item.ProductionYear}).",
+            "ReleaseDataNull" => $"TMDb release data unavailable for '{item.Name}' (TMDb ID: {tmdbId?.ToString(CultureInfo.InvariantCulture) ?? "?"}).",
+            "HttpError" => $"TMDb network or parse error while processing '{item.Name}'.",
+            _ => $"TMDb could not resolve '{item.Name}': {reason}"
+        };
     }
 
     private async Task SaveItemAsync(BaseItem item, CancellationToken cancellationToken)
