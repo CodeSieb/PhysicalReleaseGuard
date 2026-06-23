@@ -1,14 +1,14 @@
 {
   "category": "General",
-  "changelog": "Performance & reliability improvements: polite TMDb client (configurable rate limit, retries with exponential backoff + jitter), bounded-parallel scans, optional per-scan circuit breaker, persistent Unmatched TMDb Items panel on the config page with per-item retry and manual TMDb ID pinning.",
+  "changelog": "Fixes UNIQUE constraint failure when applying the auto-block tag for new users in Parental Control. The plugin now merges tags into the existing PreferenceKind.BlockedTags row (using Jellyfin's pipe-separated format) instead of inserting a duplicate row that violates the (UserId, Kind) UNIQUE index.",
   "description": "Automatically manages a configurable tag for movies and series based on TMDb physical release data.",
   "guid": "a7b3c9e1-4f2d-4e8b-9a6c-1d3f5e7b9a0c",
   "name": "Physical Release Guard",
   "overview": "Scans your movie and series libraries and adds or removes a configurable tag based on whether a physical release exists according to TMDb data. Movies use TMDb physical release dates; series use TMDb DVD/physical episode-group evidence.",
   "owner": "CodeSieb",
   "targetAbi": "10.11.0.0",
-  "timestamp": "2026-06-22T00:00:00Z",
-  "version": "1.11.0.0",
+  "timestamp": "2026-06-23T00:00:00Z",
+  "version": "1.11.1.0",
   "status": "Active",
   "autoUpdate": true,
   "assemblies": [

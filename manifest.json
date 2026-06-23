@@ -8,6 +8,14 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.11.1.0",
+        "changelog": "Fixes UNIQUE constraint failure when applying the auto-block tag for new users in Parental Control. The plugin now merges tags into the existing PreferenceKind.BlockedTags row (using Jellyfin's pipe-separated format) instead of inserting a duplicate row that violates the (UserId, Kind) UNIQUE index.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/plugin/PhysicalReleaseGuard.zip",
+        "checksum": "f2bcb3e21b0b49de8cd5c343aca6ced5",
+        "timestamp": "2026-06-23T00:00:00Z"
+      },
+      {
         "version": "1.11.0.0",
         "changelog": "Performance & reliability improvements: polite TMDb client (configurable rate limit, retries with exponential backoff + jitter), bounded-parallel scans, optional per-scan circuit breaker, persistent Unmatched TMDb Items panel on the config page with per-item retry and manual TMDb ID pinning.",
         "targetAbi": "10.11.0.0",
