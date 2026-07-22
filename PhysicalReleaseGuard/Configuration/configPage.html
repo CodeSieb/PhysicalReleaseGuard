@@ -22,6 +22,10 @@
                             Can also be set via the <code>TMDbApiKey</code> environment variable.
                         </div>
                     </div>
+                    <button is="emby-button" id="btnTestTmdb" type="button" class="raised">
+                        <span>Test saved TMDb connection</span>
+                    </button>
+                    <div id="tmdbStatusResult" class="fieldDescription" style="margin-top:.5em;"></div>
                     <br />
                     <div class="sectionTitleContainer">
                         <h2 class="sectionTitle">Tag Name</h2>
@@ -44,6 +48,12 @@
                         </label>
                         <div class="fieldDescription">
                             When enabled, newly added movies and series are processed immediately using per-library settings. Disabled libraries and excluded items are still skipped.
+                        </div>
+                    </div>
+                    <div class="inputContainer">
+                        <input is="emby-input" id="txtAutoScanDelaySeconds" type="number" min="0" max="600" label="Wait before scanning a new item (seconds)" />
+                        <div class="fieldDescription">
+                            Gives Jellyfin time to finish metadata identification before TMDb matching starts. Default 30 seconds; use 0 for immediate processing.
                         </div>
                     </div>
                     <br />
@@ -138,6 +148,12 @@
                     <div class="sectionTitleContainer">
                         <h2 class="sectionTitle">Libraries</h2>
                     </div>
+                    <div style="display:flex;flex-wrap:wrap;gap:.5em;margin-bottom:.75em;">
+                        <button is="emby-button" id="btnEnableAllLibraries" type="button" class="raised">Enable all</button>
+                        <button is="emby-button" id="btnDisableAllLibraries" type="button" class="raised">Disable all</button>
+                        <button is="emby-button" id="btnScanAllLibraries" type="button" class="raised">Scan all enabled</button>
+                    </div>
+                    <div id="scanAllStatus" class="fieldDescription" style="margin-bottom:.5em;"></div>
                     <div id="libraryConfigContainer"></div>
                     <div class="fieldDescription">
                         Configure per-library settings. Disabled libraries are skipped entirely. Set a custom tag name per library, or leave blank to use the global tag above.
@@ -149,6 +165,11 @@
                     <div class="inputContainer">
                         <input is="emby-input" id="txtItemFilter" type="text" label="Filter movies and series" />
                     </div>
+                    <div style="display:flex;flex-wrap:wrap;gap:.5em;margin-bottom:.5em;">
+                        <button is="emby-button" id="btnExcludeFiltered" type="button" class="raised">Exclude filtered</button>
+                        <button is="emby-button" id="btnIncludeFiltered" type="button" class="raised">Include filtered</button>
+                    </div>
+                    <div id="itemExclusionsSummary" class="fieldDescription" style="margin-bottom:.5em;"></div>
                     <div id="itemExclusionsContainer" class="checkboxListContainer" style="max-height: 28em; overflow-y: auto;"></div>
                     <div class="fieldDescription">
                         Selected movies and series are skipped entirely by the scheduled scan. The plugin will not add or remove the configured tag for those items.
@@ -207,8 +228,15 @@
             var librariesLoaded = false;
             var itemsLoaded = false;
             var countriesLoaded = false;
+            var scanStatusPoller = null;
 
             var unmatchedEntries = [];
+
+            function readBoundedInt(elementId, fallback, min, max) {
+                var value = parseInt(document.getElementById(elementId).value, 10);
+                if (isNaN(value)) value = fallback;
+                return Math.min(max, Math.max(min, value));
+            }
 
             function populateScanHourDropdown() {
                 var select = document.getElementById("selScanHour");
@@ -435,9 +463,16 @@
                         scanBtn.className = "raised scanLibraryBtn";
                         scanBtn.dataset.libraryId = libraryId;
                         scanBtn.textContent = "Scan Now";
+                        scanBtn.disabled = !isEnabled;
 
                         headerRow.appendChild(scanBtn);
                         row.appendChild(headerRow);
+
+                        var scanStatus = document.createElement("div");
+                        scanStatus.className = "fieldDescription libraryScanStatus";
+                        scanStatus.dataset.libraryId = libraryId;
+                        scanStatus.style.cssText = "margin:0 0 .5em;min-height:1.2em;";
+                        row.appendChild(scanStatus);
 
                         var inputContainer = document.createElement("div");
                         inputContainer.className = "inputContainer";
@@ -469,6 +504,34 @@
                     var searchText = label.dataset.searchText || "";
                     label.style.display = !filter || searchText.indexOf(filter) !== -1 ? "block" : "none";
                 });
+
+                updateItemExclusionsSummary();
+            }
+
+            function updateItemExclusionsSummary() {
+                var labels = Array.prototype.slice.call(document.querySelectorAll(".itemExclusionLabel"));
+                var visible = labels.filter(function (label) { return label.style.display !== "none"; });
+                var selected = labels.filter(function (label) {
+                    var checkbox = label.querySelector(".itemExclusionCheckbox");
+                    return checkbox && checkbox.checked;
+                });
+                var selectedVisible = visible.filter(function (label) {
+                    var checkbox = label.querySelector(".itemExclusionCheckbox");
+                    return checkbox && checkbox.checked;
+                });
+                var summary = document.getElementById("itemExclusionsSummary");
+                summary.textContent = selected.length + " excluded total; " + selectedVisible.length +
+                    " excluded across " + visible.length + " visible item(s).";
+            }
+
+            function setFilteredExclusions(excluded) {
+                var labels = Array.prototype.slice.call(document.querySelectorAll(".itemExclusionLabel"));
+                labels.forEach(function (label) {
+                    if (label.style.display === "none") return;
+                    var checkbox = label.querySelector(".itemExclusionCheckbox");
+                    if (checkbox) checkbox.checked = excluded;
+                });
+                updateItemExclusionsSummary();
             }
 
             function renderItemExclusions(config) {
@@ -632,6 +695,7 @@
                     document.getElementById("txtTmdbApiKey").value = config.TmdbApiKey || "";
                     document.getElementById("txtTagName").value = config.TagName || "Hidden";
                     document.getElementById("chkAutoScanEnabled").checked = config.AutoScanEnabled === true;
+                    document.getElementById("txtAutoScanDelaySeconds").value = (config.AutoScanDelaySeconds != null ? config.AutoScanDelaySeconds : 30).toString();
                     document.getElementById("chkDryRunEnabled").checked = config.DryRunEnabled === true;
                     document.getElementById("chkAutoBlockTagForNewUsers").checked = config.AutoBlockTagForNewUsers === true;
                     document.getElementById("chkEnableCircuitBreaker").checked = config.EnableCircuitBreaker !== false;
@@ -655,7 +719,8 @@
                     });
                 }).then(function () {
                     refreshScanStatus();
-                    setInterval(refreshScanStatus, 3000);
+                    if (scanStatusPoller) clearInterval(scanStatusPoller);
+                    scanStatusPoller = setInterval(refreshScanStatus, 2000);
                     refreshUnmatchedItems();
                     Dashboard.hideLoadingMsg();
                 }).catch(function () {
@@ -663,8 +728,69 @@
                 });
             });
 
+            page.addEventListener("pagehide", function () {
+                if (scanStatusPoller) {
+                    clearInterval(scanStatusPoller);
+                    scanStatusPoller = null;
+                }
+            });
+
             document.getElementById("txtItemFilter").addEventListener("input", applyItemFilter);
             document.getElementById("txtUnmatchedItemFilter").addEventListener("input", applyUnmatchedFilter);
+            document.getElementById("itemExclusionsContainer").addEventListener("change", updateItemExclusionsSummary);
+
+            document.getElementById("btnExcludeFiltered").addEventListener("click", function () {
+                setFilteredExclusions(true);
+            });
+
+            document.getElementById("btnIncludeFiltered").addEventListener("click", function () {
+                setFilteredExclusions(false);
+            });
+
+            function setAllLibrariesEnabled(enabled) {
+                Array.prototype.slice.call(document.querySelectorAll(".libraryConfigItem")).forEach(function (row) {
+                    var checkbox = row.querySelector(".libraryEnabledCheckbox");
+                    var scanBtn = row.querySelector(".scanLibraryBtn");
+                    if (checkbox) checkbox.checked = enabled;
+                    if (scanBtn && scanBtn.dataset.scanning !== "true") scanBtn.disabled = !enabled;
+                });
+            }
+
+            document.getElementById("btnEnableAllLibraries").addEventListener("click", function () {
+                setAllLibrariesEnabled(true);
+            });
+
+            document.getElementById("btnDisableAllLibraries").addEventListener("click", function () {
+                setAllLibrariesEnabled(false);
+            });
+
+            document.getElementById("libraryConfigContainer").addEventListener("change", function (e) {
+                if (!e.target.classList.contains("libraryEnabledCheckbox")) return;
+                var row = e.target.closest(".libraryConfigItem");
+                var scanBtn = row ? row.querySelector(".scanLibraryBtn") : null;
+                if (scanBtn && scanBtn.dataset.scanning !== "true") scanBtn.disabled = !e.target.checked;
+            });
+
+            document.getElementById("btnTestTmdb").addEventListener("click", function () {
+                var btn = document.getElementById("btnTestTmdb");
+                var result = document.getElementById("tmdbStatusResult");
+                btn.disabled = true;
+                btn.textContent = "Testing...";
+                result.textContent = "Contacting TMDb with the saved key...";
+                ApiClient.getJSON(ApiClient.getUrl("PhysicalReleaseGuard/TmdbStatus"))
+                    .then(function (status) {
+                        result.style.color = status.Connected ? "#4caf50" : "#f44336";
+                        result.textContent = status.Message + (status.Connected ? " (" + status.ElapsedMilliseconds + " ms)" : "");
+                    })
+                    .catch(function () {
+                        result.style.color = "#f44336";
+                        result.textContent = "Connection test failed. Check the Jellyfin server log.";
+                    })
+                    .finally(function () {
+                        btn.disabled = false;
+                        btn.textContent = "Test saved TMDb connection";
+                    });
+            });
 
             document.getElementById("btnRefreshUnmatched").addEventListener("click", function () {
                 refreshUnmatchedItems();
@@ -738,7 +864,12 @@
                         data: JSON.stringify({ ItemId: itemIdForSave, TmdbId: tmdbId }),
                         contentType: "application/json"
                     }).then(function (resp) {
-                        showUnmatchedResult("Saved. TMDb ID " + resp.TmdbId + " pinned (" + resp.Kind + ").", false);
+                        var outcome = resp.Applied
+                            ? (resp.DryRun ? "Resolved and previewed immediately." : "Resolved and applied immediately.")
+                            : "Link saved, but release data is still unavailable.";
+                        showUnmatchedResult(
+                            "TMDb ID " + resp.TmdbId + " pinned (" + resp.Kind + "). " + outcome,
+                            !resp.Applied);
                         refreshUnmatchedItems();
                     }).catch(function (err) {
                         var message = (err && err.responseJSON && err.responseJSON.message) || "Could not save manual link.";
@@ -776,7 +907,7 @@
             });
 
             function refreshScanStatus() {
-                var buttons = document.querySelectorAll(".scanLibraryBtn[disabled]");
+                var buttons = document.querySelectorAll(".scanLibraryBtn");
                 if (buttons.length === 0) return;
 
                 buttons.forEach(function (btn) {
@@ -786,31 +917,124 @@
                     ApiClient.getJSON(
                         ApiClient.getUrl("PhysicalReleaseGuard/ScanLibrary/" + encodeURIComponent(libraryId) + "/Status")
                     ).then(function (status) {
-                        if (!status.Scanning) {
-                            btn.disabled = false;
-                            btn.textContent = "Scan Now";
-                        }
+                        renderLibraryScanStatus(btn, status);
                     });
                 });
             }
+
+            function renderLibraryScanStatus(btn, status) {
+                var row = btn.closest(".libraryConfigItem");
+                var statusDiv = row ? row.querySelector(".libraryScanStatus") : null;
+                var enabledCheckbox = row ? row.querySelector(".libraryEnabledCheckbox") : null;
+                var scanning = status && status.Scanning === true;
+                btn.dataset.scanning = scanning ? "true" : "false";
+
+                if (scanning) {
+                    btn.disabled = status.CanCancel === false;
+                    btn.textContent = status.CanCancel === false
+                        ? "Cancelling..."
+                        : "Cancel (" + (status.Percent || 0) + "%)";
+                } else {
+                    btn.disabled = enabledCheckbox ? !enabledCheckbox.checked : false;
+                    btn.textContent = "Scan Now";
+                }
+
+                if (!statusDiv || !status) return;
+                if (status.State === "Idle") {
+                    statusDiv.textContent = "";
+                    return;
+                }
+
+                var details = [];
+                if (status.Total > 0) {
+                    details.push(status.Processed + "/" + status.Total + " processed");
+                    details.push(status.Modified + (status.DryRun ? " changes previewed" : " modified"));
+                    if (status.Skipped) details.push(status.Skipped + " failed");
+                    if (status.Excluded) details.push(status.Excluded + " excluded");
+                }
+                if (status.CurrentItem) details.push("Now: " + status.CurrentItem);
+                statusDiv.textContent = status.State + ": " + status.Message +
+                    (details.length ? " · " + details.join(" · ") : "");
+                statusDiv.style.color = status.State === "Failed" ? "#f44336" :
+                    status.State === "Completed" ? "#4caf50" : "";
+            }
+
+            function startLibraryScan(btn) {
+                var libraryId = btn.dataset.libraryId;
+                var row = btn.closest(".libraryConfigItem");
+                var statusDiv = row ? row.querySelector(".libraryScanStatus") : null;
+                btn.disabled = true;
+                btn.textContent = "Starting...";
+
+                return ApiClient.ajax({
+                    type: "POST",
+                    url: ApiClient.getUrl("PhysicalReleaseGuard/ScanLibrary/" + encodeURIComponent(libraryId))
+                }).then(function (status) {
+                    if (status) renderLibraryScanStatus(btn, status);
+                    refreshScanStatus();
+                    return true;
+                }).catch(function () {
+                    btn.textContent = "Scan Now";
+                    var checkbox = row ? row.querySelector(".libraryEnabledCheckbox") : null;
+                    btn.disabled = checkbox ? !checkbox.checked : false;
+                    if (statusDiv) {
+                        statusDiv.style.color = "#f44336";
+                        statusDiv.textContent = "Could not start scan. Save settings and verify the TMDb connection.";
+                    }
+                    return false;
+                });
+            }
+
+            function cancelLibraryScan(btn) {
+                var libraryId = btn.dataset.libraryId;
+                btn.disabled = true;
+                btn.textContent = "Cancelling...";
+                return ApiClient.ajax({
+                    type: "POST",
+                    url: ApiClient.getUrl("PhysicalReleaseGuard/ScanLibrary/" + encodeURIComponent(libraryId) + "/Cancel")
+                }).then(function () {
+                    refreshScanStatus();
+                }).catch(function () {
+                    refreshScanStatus();
+                });
+            }
+
+            document.getElementById("btnScanAllLibraries").addEventListener("click", function () {
+                var allBtn = document.getElementById("btnScanAllLibraries");
+                var summary = document.getElementById("scanAllStatus");
+                var buttons = Array.prototype.slice.call(document.querySelectorAll(".libraryConfigItem"))
+                    .filter(function (row) {
+                        var checkbox = row.querySelector(".libraryEnabledCheckbox");
+                        var btn = row.querySelector(".scanLibraryBtn");
+                        return checkbox && checkbox.checked && btn && btn.dataset.scanning !== "true";
+                    })
+                    .map(function (row) { return row.querySelector(".scanLibraryBtn"); });
+
+                if (!buttons.length) {
+                    summary.textContent = "No enabled idle libraries are available to scan.";
+                    return;
+                }
+
+                allBtn.disabled = true;
+                summary.textContent = "Starting scans for " + buttons.length + " enabled librar" + (buttons.length === 1 ? "y" : "ies") + "...";
+                Promise.all(buttons.map(startLibraryScan)).then(function (results) {
+                    var started = results.filter(function (value) { return value; }).length;
+                    summary.textContent = "Started " + started + " of " + buttons.length + " library scan(s). Live progress appears below.";
+                }).finally(function () {
+                    allBtn.disabled = false;
+                });
+            });
 
             document.querySelector(".pluginConfigurationForm").addEventListener("click", function (e) {
                 var btn = e.target.closest(".scanLibraryBtn");
                 if (!btn || btn.disabled) return;
 
-                var libraryId = btn.dataset.libraryId;
-                if (!libraryId) return;
-
-                btn.disabled = true;
-                btn.textContent = "Scanning...";
-
-                ApiClient.ajax({
-                    type: "POST",
-                    url: ApiClient.getUrl("PhysicalReleaseGuard/ScanLibrary/" + encodeURIComponent(libraryId))
-                }).catch(function () {
-                    btn.textContent = "Scan Now";
-                    btn.disabled = false;
-                });
+                if (!btn.dataset.libraryId) return;
+                if (btn.dataset.scanning === "true") {
+                    cancelLibraryScan(btn);
+                } else {
+                    startLibraryScan(btn);
+                }
             });
 
             document.querySelector(".pluginConfigurationForm").addEventListener("submit", function (e) {
@@ -821,16 +1045,17 @@
                     config.TmdbApiKey = document.getElementById("txtTmdbApiKey").value;
                     config.TagName = document.getElementById("txtTagName").value || "Hidden";
                     config.AutoScanEnabled = document.getElementById("chkAutoScanEnabled").checked;
+                    config.AutoScanDelaySeconds = readBoundedInt("txtAutoScanDelaySeconds", 30, 0, 600);
                     config.DryRunEnabled = document.getElementById("chkDryRunEnabled").checked;
                     config.AutoBlockTagForNewUsers = document.getElementById("chkAutoBlockTagForNewUsers").checked;
                     config.PreferredRegion = document.getElementById("selPreferredRegion").value || "";
-                    config.ScanHour = parseInt(document.getElementById("selScanHour").value, 10) || 3;
-                    config.MaxRequestsPerSecond = Math.max(1, parseInt(document.getElementById("txtMaxRequestsPerSecond").value, 10) || 4);
-                    config.MaxDegreeOfParallelism = Math.max(1, parseInt(document.getElementById("txtMaxDegreeOfParallelism").value, 10) || 4);
-                    config.MaxRetriesPerItem = Math.max(0, parseInt(document.getElementById("txtMaxRetriesPerItem").value, 10) || 3);
-                    config.RetryInitialDelayMs = Math.max(50, parseInt(document.getElementById("txtRetryInitialDelayMs").value, 10) || 500);
+                    config.ScanHour = readBoundedInt("selScanHour", 3, 0, 23);
+                    config.MaxRequestsPerSecond = readBoundedInt("txtMaxRequestsPerSecond", 4, 1, 50);
+                    config.MaxDegreeOfParallelism = readBoundedInt("txtMaxDegreeOfParallelism", 4, 1, 32);
+                    config.MaxRetriesPerItem = readBoundedInt("txtMaxRetriesPerItem", 3, 0, 10);
+                    config.RetryInitialDelayMs = readBoundedInt("txtRetryInitialDelayMs", 500, 50, 5000);
                     config.EnableCircuitBreaker = document.getElementById("chkEnableCircuitBreaker").checked;
-                    config.CircuitBreakerThreshold = Math.max(1, parseInt(document.getElementById("txtCircuitBreakerThreshold").value, 10) || 10);
+                    config.CircuitBreakerThreshold = readBoundedInt("txtCircuitBreakerThreshold", 10, 1, 100);
                     config.TrackUnmatchedItems = document.getElementById("chkTrackUnmatchedItems").checked;
 
                     if (librariesLoaded) {
@@ -870,7 +1095,7 @@
                     }
 
                     ApiClient.updatePluginConfiguration(pluginId, config).then(function (result) {
-                        var scanHour = config.ScanHour || 3;
+                        var scanHour = config.ScanHour != null ? config.ScanHour : 3;
                         var ticks = scanHour * 36000000000;
                         var trigger = {
                             type: "DailyTrigger",

@@ -35,7 +35,7 @@ public class HiddenTagScanTask : IScheduledTask
 
     public string Key => "PhysicalReleaseGuardScan";
 
-    public string Description => "Scans movies and series in the library and manages the 'Hidden' tag based on TMDb physical release data.";
+    public string Description => "Scans enabled movie and series libraries and manages configured visibility tags based on TMDb physical release data.";
 
     public string Category => "Plugins";
 

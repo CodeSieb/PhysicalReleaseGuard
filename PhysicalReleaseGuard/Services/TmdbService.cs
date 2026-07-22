@@ -45,7 +45,10 @@ public interface ITmdbService
     /// Probes a TMDb ID to determine whether it corresponds to a movie or a TV series.
     /// Returns the lowercase kind ("movie", "series") or null if neither is found.
     /// </summary>
-    Task<string?> ProbeTmdbIdAsync(int tmdbId, CancellationToken cancellationToken = default);
+    Task<string?> ProbeTmdbIdAsync(
+        int tmdbId,
+        string? preferredKind = null,
+        CancellationToken cancellationToken = default);
 }
 
 public class TmdbService : ITmdbService
@@ -330,12 +333,30 @@ public class TmdbService : ITmdbService
     }
 
     /// <inheritdoc />
-    public async Task<string?> ProbeTmdbIdAsync(int tmdbId, CancellationToken cancellationToken = default)
+    public async Task<string?> ProbeTmdbIdAsync(
+        int tmdbId,
+        string? preferredKind = null,
+        CancellationToken cancellationToken = default)
     {
         var apiKey = GetApiKey();
         if (string.IsNullOrWhiteSpace(apiKey))
         {
             return null;
+        }
+
+        if (preferredKind is "movie" or "series")
+        {
+            try
+            {
+                var preferredResult = await ProbeOneKindAsync(tmdbId, preferredKind, cancellationToken)
+                    .ConfigureAwait(false);
+                return preferredResult is null ? null : preferredKind;
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogDebug(ex, "TMDb {Kind} probe failed for ID {Id}", preferredKind, tmdbId);
+                return null;
+            }
         }
 
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

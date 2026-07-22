@@ -34,9 +34,22 @@ The plugin is friendlier to TMDb and easier to operate at scale:
 - **Bounded-parallel scans** — multiple items are processed concurrently (configurable cap). The same cap also throttles the auto-scan-on-add path so a flood of new items doesn't trip TMDb.
 - **Per-scan circuit breaker** — when enabled, a single scan aborts after a configurable number of consecutive TMDb failures. The next scan starts with a clean slate.
 - **Unmatched TMDb Items panel** — items the matcher could not resolve (no search hit, no release data, persistent TMDb errors) are recorded and surfaced on the config page. From there you can Retry lookup, or pin a TMDb ID manually to bypass the search step on subsequent scans.
-- **Manual TMDb links** — pin a specific TMDb ID for any item. The link is validated against TMDb on save (probes both `/movie/{id}` and `/tv/{id}`) and replaces the auto-search.
+- **Manual TMDb links** — pin a specific TMDb ID for any item. The link is validated against the item's media type and replaces the auto-search.
 
 Defaults are conservative so existing installs don't suddenly hammer TMDb. Most users won't need to touch them.
+
+## Operations & Quality of Life (v1.12.0.0+)
+
+- **Live library scan progress** - each library shows queued/running/completed state, processed and modified counts, exclusions, errors, and the current item.
+- **Safe cancellation** - a running library scan can be cancelled from the same button without interrupting Jellyfin.
+- **Scan all enabled libraries** - start every enabled library from the plugin page while retaining independent progress and cancellation controls.
+- **TMDb connection test** - verify the saved API key and server connectivity before starting a large scan.
+- **Bulk configuration controls** - enable or disable all libraries and include or exclude all currently filtered titles in one click.
+- **Metadata-aware auto-scan** - newly added items wait 30 seconds by default before matching, giving Jellyfin time to populate provider IDs, title, and year. The delay is configurable from 0 to 600 seconds.
+- **Save-and-apply manual links** - a pinned TMDb ID is checked against the Jellyfin media type and applied immediately; a second retry or full scan is no longer required.
+- **More accurate unmatched cleanup** - any successful TMDb resolution clears the stale unmatched row, even when the item's tags already matched the desired state.
+
+Single-library scans now honor title exclusions just like scheduled and auto-scans. Numeric settings are clamped to their supported ranges, and midnight schedules plus zero-retry configurations save correctly.
 
 ## Installation
 
@@ -82,7 +95,11 @@ The compiled `PhysicalReleaseGuard.dll` will be in `PhysicalReleaseGuard/bin/Rel
 
 ### Manual scan
 
-Go to **Dashboard → Scheduled Tasks → Run Physical Release Guard Scan** and click the play button. You can also trigger a scan for a single library from the config page.
+Go to **Dashboard → Scheduled Tasks → Run Physical Release Guard Scan** and click the play button. From the plugin page you can also scan one library, scan all enabled libraries, follow live progress, or cancel a running library scan.
+
+### Auto-scan delay
+
+When auto-scan is enabled, new items wait 30 seconds by default so Jellyfin can finish metadata identification. Set the delay to `0` for immediate processing, or increase it when provider IDs commonly arrive later on your server.
 
 ### Excluded libraries
 
@@ -94,7 +111,7 @@ Go to **Dashboard → Plugins → Physical Release Guard** and select individual
 
 ### Manual TMDb links
 
-For items the auto-search fails to resolve, open the **Unmatched TMDb Items** panel on the config page. Either click **Retry Lookup** to re-run the auto-search, or paste a TMDb ID and click **Save Link** to pin it. Validated links bypass the search step on subsequent scans.
+For items the auto-search fails to resolve, open the **Unmatched TMDb Items** panel on the config page. Either click **Retry Lookup** to re-run the auto-search, or paste a TMDb ID and click **Save Link** to pin it. The plugin validates that the ID is the correct movie/series type and immediately applies the release decision.
 
 > [!NOTE]
 > The `Hidden` tag only hides items from a user's library view if it is blocked in that user's **Parental Control** settings. Go to **Dashboard → Users → [user] → Parental Control** and add `Hidden` to the blocked tags list. Otherwise the tag is metadata-only and will not affect visibility.
@@ -131,7 +148,7 @@ The `Hidden` tag must be blocked in each user's **Parental Control** settings to
 
 ### Items appear in the Unmatched TMDb Items panel
 
-Click **Retry Lookup** to re-run the auto-search. If it keeps failing, find the matching TMDb ID at [themoviedb.org](https://www.themoviedb.org), paste it into the row, and click **Save Link** to pin it. The next scan will use the pinned ID directly.
+Click **Retry Lookup** to re-run the auto-search. If it keeps failing, find the matching TMDb ID at [themoviedb.org](https://www.themoviedb.org), paste it into the row, and click **Save Link** to pin and apply it immediately.
 
 ### Scan is slow
 
@@ -139,7 +156,7 @@ On large libraries the scan can take a while. It runs in the background, so you 
 
 ### API key is not working
 
-Verify your TMDb API key is valid at [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api) and that it is entered correctly in **Dashboard → Plugins → Physical Release Guard**. You can also set the `TMDbApiKey` environment variable as an alternative.
+Save the key, then use **Test saved TMDb connection** on the plugin page. If it fails, verify your TMDb API key at [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api) and check the Jellyfin server log. You can also set the `TMDbApiKey` environment variable as an alternative.
 
 ## Contributing
 

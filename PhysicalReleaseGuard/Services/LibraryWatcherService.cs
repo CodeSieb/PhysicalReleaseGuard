@@ -72,40 +72,76 @@ public class LibraryWatcherService : IHostedService
             return;
         }
 
-        if (!Plugin.Instance!.HasTmdbApiKey())
-        {
-            _logger.LogWarning(
-                "Auto-scan skipped for '{Item}': TMDb API key not configured.", item.Name);
-            return;
-        }
+        var delaySeconds = Math.Clamp(config.AutoScanDelaySeconds, 0, 600);
+        _ = ProcessItemAfterDelayAsync(item.Id, item.Name ?? "Unknown", delaySeconds);
+    }
 
-        if (IsItemExcluded(item, config))
-        {
-            _logger.LogDebug("Auto-scan skipped for '{Item}': item is excluded.", item.Name);
-            return;
-        }
+    private async Task ProcessItemAfterDelayAsync(Guid itemId, string originalName, int delaySeconds)
+    {
+        var ct = _stopCts?.Token ?? CancellationToken.None;
 
-        var collectionFolders = _libraryManager.GetCollectionFolders(item).ToArray();
-        var library = collectionFolders.FirstOrDefault();
-        if (library != null && IsLibraryDisabled(item, library, config))
+        try
         {
+            if (delaySeconds > 0)
+            {
+                _logger.LogDebug(
+                    "Auto-scan queued for '{Item}' in {DelaySeconds} seconds so metadata can settle.",
+                    originalName,
+                    delaySeconds);
+                await Task.Delay(TimeSpan.FromSeconds(delaySeconds), ct).ConfigureAwait(false);
+            }
+
+            // Re-read the item and live configuration after the delay. Provider IDs, title,
+            // production year, exclusions, and per-library settings may all have changed.
+            var item = _libraryManager.GetItemById(itemId);
+            var config = Plugin.Instance?.Configuration;
+            if (item is not Movie and not Series || config == null || !config.AutoScanEnabled)
+            {
+                return;
+            }
+
+            if (!Plugin.Instance!.HasTmdbApiKey())
+            {
+                _logger.LogWarning(
+                    "Auto-scan skipped for '{Item}': TMDb API key not configured.", item.Name);
+                return;
+            }
+
+            if (IsItemExcluded(item, config))
+            {
+                _logger.LogDebug("Auto-scan skipped for '{Item}': item is excluded.", item.Name);
+                return;
+            }
+
+            var library = _libraryManager.GetCollectionFolders(item).FirstOrDefault();
+            if (library != null && IsLibraryDisabled(item, library, config))
+            {
+                _logger.LogDebug(
+                    "Auto-scan skipped for '{Item}': library '{Library}' is disabled.",
+                    item.Name,
+                    library.Name);
+                return;
+            }
+
+            var tagName = ResolveTagName(item, library, config);
+            var region = string.IsNullOrWhiteSpace(config.PreferredRegion) ? null : config.PreferredRegion;
+
             _logger.LogDebug(
-                "Auto-scan skipped for '{Item}': library '{Library}' is disabled.",
+                "Auto-scan processing '{Item}' with tag '{TagName}' (region: {Region}).",
                 item.Name,
-                library.Name);
-            return;
+                tagName,
+                region ?? "all");
+
+            await ProcessItemAsync(item, tagName, region).ConfigureAwait(false);
         }
-
-        var tagName = ResolveTagName(item, library, config);
-        var region = string.IsNullOrWhiteSpace(config.PreferredRegion) ? null : config.PreferredRegion;
-
-        _logger.LogDebug(
-            "Auto-scan processing '{Item}' with tag '{TagName}' (region: {Region}).",
-            item.Name,
-            tagName,
-            region ?? "all");
-
-        _ = ProcessItemAsync(item, tagName, region);
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Plugin stopping.
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Auto-scan queue error for '{Item}'.", originalName);
+        }
     }
 
     private async Task ProcessItemAsync(BaseItem item, string tagName, string? region)

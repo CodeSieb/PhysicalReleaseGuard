@@ -8,10 +8,18 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.12.0.0",
+        "changelog": "Quality-of-life release: live per-library scan progress and cancellation, scan-all-enabled, TMDb connection test, bulk library and title-exclusion controls, configurable metadata settle delay for auto-scan, save-and-apply manual TMDb links, correct unmatched cleanup, and exclusion handling for single-library scans.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/plugin/PhysicalReleaseGuard_1.12.0.0.zip",
+        "checksum": "15a89a0cd187e8ecb58b71b302a17863",
+        "timestamp": "2026-07-22T00:00:00Z"
+      },
+      {
         "version": "1.11.1.0",
         "changelog": "Fixes UNIQUE constraint failure when applying the auto-block tag for new users in Parental Control. The plugin now merges tags into the existing PreferenceKind.BlockedTags row (using Jellyfin's pipe-separated format) instead of inserting a duplicate row that violates the (UserId, Kind) UNIQUE index.",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/plugin/PhysicalReleaseGuard.zip",
+        "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/f19cb18fc27984fb38103ba928db3b530fb99b25/plugin/PhysicalReleaseGuard.zip",
         "checksum": "f2bcb3e21b0b49de8cd5c343aca6ced5",
         "timestamp": "2026-06-23T00:00:00Z"
       },
@@ -19,7 +27,7 @@
         "version": "1.11.0.0",
         "changelog": "Performance & reliability improvements: polite TMDb client (configurable rate limit, retries with exponential backoff + jitter), bounded-parallel scans, optional per-scan circuit breaker, persistent Unmatched TMDb Items panel on the config page with per-item retry and manual TMDb ID pinning.",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/plugin/PhysicalReleaseGuard.zip",
+        "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/6dd266f55f4fcf88ef92b12a271aac94ce66ceda/plugin/PhysicalReleaseGuard.zip",
         "checksum": "84e4c83fe1822957f34728ab1d96126d",
         "timestamp": "2026-06-22T00:00:00Z"
       },
@@ -27,7 +35,7 @@
         "version": "1.10.0.0",
         "changelog": "Auto-block tag for new users in Parental Control. Adds Parental Control section with toggle and apply-to-all-users button.",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/plugin/PhysicalReleaseGuard.zip",
+        "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/da3392c9fe18788f7eb475b3bbde64678e36977f/plugin/PhysicalReleaseGuard.zip",
         "checksum": "38ebec08ac22a18d9efd14377b7a46c4",
         "timestamp": "2026-06-12T00:00:00Z"
       },
@@ -35,7 +43,7 @@
         "version": "1.9.0.0",
         "changelog": "Adds configurable scan schedule UI, dry-run mode for previewing changes, and preferred region filtering for TMDb physical releases.",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/plugin/PhysicalReleaseGuard.zip",
+        "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/40a2172b0f4604b10f56e86058bcb4ec93c2a12b/plugin/PhysicalReleaseGuard.zip",
         "checksum": "f920dc88d42e0b764cd3ec5c1627d10c",
         "timestamp": "2026-06-12T00:00:00Z"
       },
@@ -43,7 +51,7 @@
         "version": "1.8.0.0",
         "changelog": "Prevents concurrent library scans. Scan Now buttons disable while a scan is running and re-enable when it completes.",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/plugin/PhysicalReleaseGuard.zip",
+        "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/30eeec771e75a9c1f494866a28dfdacaafeb88c7/plugin/PhysicalReleaseGuard.zip",
         "checksum": "93c8f4e4272dd156d29c35bd45594479",
         "timestamp": "2026-06-12T00:00:00Z"
       },
@@ -51,40 +59,8 @@
         "version": "1.3.0.0",
         "changelog": "Adds configurable movie and series exclusions so selected titles are skipped and left untouched by the Hidden tag scan.",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/plugin/PhysicalReleaseGuard.zip",
+        "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/64551af22677c0b1aad2933cadf6c820320b921e/plugin/PhysicalReleaseGuard.zip",
         "checksum": "e0a3506a34f7ef8c87030d7075fe6681",
-        "timestamp": "2026-06-12T00:00:00Z"
-      },
-      {
-        "version": "1.4.0.0",
-        "changelog": "Adds configurable tag name so users can choose which tag the plugin manages instead of the hardcoded 'Hidden' tag.",
-        "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/plugin/PhysicalReleaseGuard.zip",
-        "checksum": "fc0e0fb6371f405197399791517711ac",
-        "timestamp": "2026-06-12T00:00:00Z"
-      },
-      {
-        "version": "1.5.0.0",
-        "changelog": "Adds per-library configuration including enable/disable toggle and custom tag name per library.",
-        "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/plugin/PhysicalReleaseGuard.zip",
-        "checksum": "5298b6f7acd0b4d7d3dfbef77e94acd6",
-        "timestamp": "2026-06-12T00:00:00Z"
-      },
-      {
-        "version": "1.7.0.0",
-        "changelog": "Adds auto-scan for new items with configurable toggle in settings.",
-        "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/plugin/PhysicalReleaseGuard.zip",
-        "checksum": "dd321f80bb308f0f347bdba500449840",
-        "timestamp": "2026-06-12T00:00:00Z"
-      },
-      {
-        "version": "1.6.0.0",
-        "changelog": "Adds per-library scan buttons on the config page to trigger a scan for a single library.",
-        "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/plugin/PhysicalReleaseGuard.zip",
-        "checksum": "4c1e83bf2836e617359bc291f12c00fe",
         "timestamp": "2026-06-12T00:00:00Z"
       }
     ]

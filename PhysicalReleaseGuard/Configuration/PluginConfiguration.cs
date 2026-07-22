@@ -43,6 +43,12 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool AutoScanEnabled { get; set; } = false;
 
     /// <summary>
+    /// Gets or sets how long auto-scan waits after Jellyfin reports a new item.
+    /// This gives metadata providers time to populate the title, year, and provider IDs.
+    /// </summary>
+    public int AutoScanDelaySeconds { get; set; } = 30;
+
+    /// <summary>
     /// Gets or sets per-library configuration (tag name, enabled state).
     /// </summary>
     public LibraryConfig[] PerLibraryConfig { get; set; } = Array.Empty<LibraryConfig>();

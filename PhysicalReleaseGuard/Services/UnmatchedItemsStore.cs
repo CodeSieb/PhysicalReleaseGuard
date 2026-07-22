@@ -102,8 +102,9 @@ public sealed class UnmatchedItemsStore : IUnmatchedItemsStore
         await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            var normalizedItemId = NormalizeItemId(item.ItemId);
             var now = DateTime.UtcNow;
-            if (_items.TryGetValue(item.ItemId, out var existing))
+            if (_items.TryGetValue(normalizedItemId, out var existing))
             {
                 existing.Reason = item.Reason;
                 existing.Message = item.Message;
@@ -114,9 +115,9 @@ public sealed class UnmatchedItemsStore : IUnmatchedItemsStore
             }
             else
             {
-                _items[item.ItemId] = new UnmatchedItem
+                _items[normalizedItemId] = new UnmatchedItem
                 {
-                    ItemId = item.ItemId,
+                    ItemId = normalizedItemId,
                     ItemName = item.ItemName,
                     ItemType = item.ItemType,
                     ProductionYear = item.ProductionYear,
@@ -150,7 +151,7 @@ public sealed class UnmatchedItemsStore : IUnmatchedItemsStore
         await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var removed = _items.TryRemove(itemId, out _);
+            var removed = _items.TryRemove(NormalizeItemId(itemId), out _);
             if (removed)
             {
                 await WriteSnapshotAsync(_items.Values, cancellationToken).ConfigureAwait(false);
@@ -211,7 +212,9 @@ public sealed class UnmatchedItemsStore : IUnmatchedItemsStore
             {
                 if (!string.IsNullOrWhiteSpace(entry.ItemId))
                 {
-                    _items[entry.ItemId] = entry;
+                    var normalizedItemId = NormalizeItemId(entry.ItemId);
+                    entry.ItemId = normalizedItemId;
+                    _items[normalizedItemId] = entry;
                 }
             }
 
@@ -247,6 +250,14 @@ public sealed class UnmatchedItemsStore : IUnmatchedItemsStore
         }
 
         File.Move(tempPath, _filePath, overwrite: true);
+    }
+
+    private static string NormalizeItemId(string itemId)
+    {
+        return itemId
+            .Trim()
+            .Replace("-", string.Empty, StringComparison.Ordinal)
+            .ToLowerInvariant();
     }
 }
 

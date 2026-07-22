@@ -190,6 +190,24 @@ public class HiddenTagService : IHiddenTagService
             return false;
         }
 
+        // A non-null release result means the item is now fully resolved, even when its
+        // tags already match the desired state. Keeping those no-op items in the
+        // unmatched panel makes retries appear to have failed, so clear the stale entry
+        // before applying (or previewing) the tag decision.
+        try
+        {
+            await _unmatchedStore.RemoveAsync(NormalizeItemId(item.Id.ToString()), cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to clear resolved unmatched item {Name}", item.Name);
+        }
+
         var effectiveTagName = !string.IsNullOrWhiteSpace(tagName) ? tagName : "Hidden";
         var currentTags = item.Tags ?? Array.Empty<string>();
         var hasTag = currentTags.Contains(effectiveTagName, StringComparer.OrdinalIgnoreCase);

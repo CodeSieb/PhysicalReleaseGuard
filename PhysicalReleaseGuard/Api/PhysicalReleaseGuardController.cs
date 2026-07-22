@@ -26,7 +26,7 @@ public class PhysicalReleaseGuardController : ControllerBase
     private readonly UserTagBlockService _userTagBlockService;
     private readonly IUnmatchedItemsStore _unmatchedStore;
     private readonly ILogger<PhysicalReleaseGuardController> _logger;
-    private readonly ConcurrentDictionary<string, bool> _activeScans = new();
+    private readonly ConcurrentDictionary<string, LibraryScanState> _scanStates = new();
 
     public PhysicalReleaseGuardController(
         ILibraryManager libraryManager,
@@ -46,6 +46,8 @@ public class PhysicalReleaseGuardController : ControllerBase
 
     [HttpPost("ScanLibrary/{libraryId}")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult ScanLibrary(string libraryId)
     {
@@ -66,40 +68,81 @@ public class PhysicalReleaseGuardController : ControllerBase
         if (disabledLibraryIds.Contains(normalizedLibraryId))
         {
             _logger.LogInformation("Library '{LibraryName}' is disabled. Scan skipped.", libraryFolder.Name);
-            return Accepted();
+            return BadRequest(new { Error = "This library is disabled in the plugin configuration." });
         }
 
-        if (!_activeScans.TryAdd(normalizedLibraryId, true))
+        var plugin = Plugin.Instance;
+        if (plugin?.HasTmdbApiKey() != true)
         {
-            _logger.LogInformation("Scan already in progress for library '{LibraryName}'.", libraryFolder.Name);
-            return Conflict("A scan is already running for this library.");
+            return BadRequest(new { Error = "Configure and save a TMDb API key before starting a scan." });
+        }
+
+        var config = plugin.Configuration;
+        var dryRun = config.DryRunEnabled;
+        var region = string.IsNullOrWhiteSpace(config.PreferredRegion) ? null : config.PreferredRegion;
+        var maxParallelism = Math.Clamp(config.MaxDegreeOfParallelism, 1, 32);
+        var breaker = config.EnableCircuitBreaker
+            ? new CircuitBreaker(Math.Clamp(config.CircuitBreakerThreshold, 1, 100))
+            : null;
+        var newState = new LibraryScanState(
+            normalizedLibraryId,
+            libraryFolder.Name ?? "Unknown",
+            dryRun);
+
+        while (true)
+        {
+            if (_scanStates.TryGetValue(normalizedLibraryId, out var existing))
+            {
+                if (existing.IsRunning)
+                {
+                    newState.Dispose();
+                    _logger.LogInformation("Scan already in progress for library '{LibraryName}'.", libraryFolder.Name);
+                    return Conflict(existing.Snapshot());
+                }
+
+                if (_scanStates.TryUpdate(normalizedLibraryId, newState, existing))
+                {
+                    existing.Dispose();
+                    break;
+                }
+
+                continue;
+            }
+
+            if (_scanStates.TryAdd(normalizedLibraryId, newState))
+            {
+                break;
+            }
         }
 
         _ = Task.Run(async () =>
         {
             try
             {
-                var config = Plugin.Instance?.Configuration;
-                var dryRun = config?.DryRunEnabled ?? false;
-                var region = string.IsNullOrWhiteSpace(config?.PreferredRegion) ? null : config.PreferredRegion;
-                var maxParallelism = Math.Max(1, config?.MaxDegreeOfParallelism ?? 4);
-                var breaker = (config?.EnableCircuitBreaker ?? true)
-                    ? new CircuitBreaker(Math.Max(1, config?.CircuitBreakerThreshold ?? 10))
-                    : null;
-                await ScanLibraryItemsAsync(libraryFolder, normalizedLibraryId, dryRun, region, maxParallelism, breaker)
+                await ScanLibraryItemsAsync(
+                        libraryFolder,
+                        normalizedLibraryId,
+                        dryRun,
+                        region,
+                        maxParallelism,
+                        breaker,
+                        newState,
+                        newState.CancellationToken)
                     .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (newState.CancellationToken.IsCancellationRequested)
+            {
+                newState.MarkCancelled();
+                _logger.LogInformation("Scan cancelled for library '{LibraryName}'.", libraryFolder.Name);
             }
             catch (Exception ex)
             {
+                newState.MarkFailed("Scan failed. Check the Jellyfin log for details.");
                 _logger.LogError(ex, "Error scanning library '{LibraryName}' ({LibraryId})", libraryFolder.Name, libraryId);
-            }
-            finally
-            {
-                _activeScans.TryRemove(normalizedLibraryId, out _);
             }
         });
 
-        return Accepted();
+        return Accepted(newState.Snapshot());
     }
 
     /// <summary>
@@ -110,7 +153,30 @@ public class PhysicalReleaseGuardController : ControllerBase
     public ActionResult GetScanStatus(string libraryId)
     {
         var normalized = NormalizeLibraryId(libraryId);
-        return Ok(new ScanStatusResponse { Scanning = _activeScans.ContainsKey(normalized) });
+        if (_scanStates.TryGetValue(normalized, out var state))
+        {
+            return Ok(state.Snapshot());
+        }
+
+        return Ok(ScanStatusResponse.Idle(normalized));
+    }
+
+    /// <summary>
+    /// Requests cancellation of a running single-library scan.
+    /// </summary>
+    [HttpPost("ScanLibrary/{libraryId}/Cancel")]
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public ActionResult CancelLibraryScan(string libraryId)
+    {
+        var normalized = NormalizeLibraryId(libraryId);
+        if (!_scanStates.TryGetValue(normalized, out var state) || !state.TryCancel())
+        {
+            return NotFound(new { Error = "No active scan was found for this library." });
+        }
+
+        _logger.LogInformation("Cancellation requested for library scan '{LibraryName}'.", state.LibraryName);
+        return Accepted(state.Snapshot());
     }
 
     private async Task ScanLibraryItemsAsync(
@@ -119,7 +185,9 @@ public class PhysicalReleaseGuardController : ControllerBase
         bool dryRun,
         string? region,
         int maxParallelism,
-        CircuitBreaker? breaker)
+        CircuitBreaker? breaker,
+        LibraryScanState state,
+        CancellationToken cancellationToken)
     {
         var perLibraryConfig = BuildPerLibraryConfigLookup();
         var libraryName = libraryFolder.Name ?? "Unknown";
@@ -128,29 +196,42 @@ public class PhysicalReleaseGuardController : ControllerBase
             "Starting single-library scan for: {LibraryName} (dry-run: {DryRun}, region: {Region}, parallelism: {Parallelism})",
             libraryName, dryRun, region ?? "all", maxParallelism);
 
-        if (!Guid.TryParse(libraryFolder.Id.ToString(), out var parentGuid))
-        {
-            _logger.LogWarning("Could not parse library folder ID for '{LibraryName}'", libraryName);
-            return;
-        }
-
         var query = new InternalItemsQuery
         {
             IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Series },
             Recursive = true,
             IsVirtualItem = false,
-            ParentId = parentGuid
+            ParentId = libraryFolder.Id
         };
 
-        var items = _libraryManager.GetItemList(query)
+        var config = Plugin.Instance?.Configuration;
+        var excludedItemIds = (config?.ExcludedItemIds ?? Array.Empty<string>())
+            .Select(NormalizeItemId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var excludedItemKeys = (config?.ExcludedItemKeys ?? Array.Empty<string>())
+            .Select(NormalizeConfiguredItemKey)
+            .Where(key => !string.IsNullOrWhiteSpace(key))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var allItems = _libraryManager.GetItemList(query)
             .Where(item => item is Movie or Series)
             .ToList();
+        var items = allItems
+            .Where(item => !IsExcludedItem(item, excludedItemIds, excludedItemKeys))
+            .ToList();
 
-        _logger.LogInformation("Found {Count} items to scan in library '{LibraryName}'", items.Count, libraryName);
+        _logger.LogInformation(
+            "Found {Count} items to scan in library '{LibraryName}' ({ExcludedCount} explicitly excluded).",
+            items.Count,
+            libraryName,
+            allItems.Count - items.Count);
+        state.MarkStarted(items.Count, allItems.Count - items.Count);
 
         if (items.Count == 0)
         {
             _logger.LogInformation("No movies or series found in library '{LibraryName}'. Scan complete.", libraryName);
+            state.MarkCompleted("No eligible movies or series were found.");
             return;
         }
 
@@ -159,7 +240,8 @@ public class PhysicalReleaseGuardController : ControllerBase
         var processed = 0;
         var parallelOptions = new ParallelOptions
         {
-            MaxDegreeOfParallelism = maxParallelism
+            MaxDegreeOfParallelism = maxParallelism,
+            CancellationToken = cancellationToken,
         };
 
         await Parallel.ForEachAsync(items, parallelOptions, async (item, ct) =>
@@ -171,24 +253,29 @@ public class PhysicalReleaseGuardController : ControllerBase
 
             try
             {
-                var tagName = GetTagNameForItem(item, normalizedLibraryId, perLibraryConfig);
+                state.SetCurrentItem(item.Name ?? "Unknown");
+                var tagName = GetTagNameForLibrary(normalizedLibraryId, perLibraryConfig);
                 var wasModified = await ProcessItemAsync(item, tagName, dryRun, region, breaker, ct)
                     .ConfigureAwait(false);
 
-                if (wasModified)
-                {
-                    Interlocked.Increment(ref modified);
-                }
+                state.RecordProcessed(wasModified, failed: false);
+                if (wasModified) Interlocked.Increment(ref modified);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
             }
             catch (CircuitOpenException)
             {
                 Volatile.Write(ref breakerTripped, true);
+                state.RecordProcessed(modified: false, failed: true);
                 _logger.LogError(
                     "Circuit breaker tripped after {Failures} failures during single-library scan. Aborting.",
                     breaker?.FailureCount ?? 0);
             }
             catch (Exception ex)
             {
+                state.RecordProcessed(modified: false, failed: true);
                 _logger.LogError(ex, "Error processing item '{ItemName}' in library '{LibraryName}'", item.Name, libraryName);
             }
             finally
@@ -203,6 +290,16 @@ public class PhysicalReleaseGuardController : ControllerBase
             processed,
             modified,
             breakerTripped);
+
+        if (breakerTripped)
+        {
+            state.MarkFailed($"Stopped after {breaker?.FailureCount ?? 0} consecutive TMDb failures.");
+            return;
+        }
+
+        state.MarkCompleted(dryRun
+            ? "Dry run completed; no tags were changed."
+            : "Scan completed successfully.");
     }
 
     private Task<bool> ProcessItemAsync(BaseItem item, string tagName, bool dryRun, string? region, CircuitBreaker? breaker, CancellationToken cancellationToken)
@@ -215,8 +312,7 @@ public class PhysicalReleaseGuardController : ControllerBase
         };
     }
 
-    private static string GetTagNameForItem(
-        BaseItem item,
+    private static string GetTagNameForLibrary(
         string normalizedLibraryId,
         Dictionary<string, Configuration.LibraryConfig> perLibraryConfig)
     {
@@ -269,6 +365,40 @@ public class PhysicalReleaseGuardController : ControllerBase
     {
         var countries = await _tmdbService.GetCountriesAsync(cancellationToken).ConfigureAwait(false);
         return Ok(countries);
+    }
+
+    /// <summary>
+    /// Tests the configured TMDb credential without exposing it to the response or logs.
+    /// </summary>
+    [HttpGet("TmdbStatus")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<TmdbStatusResponse>> GetTmdbStatus(CancellationToken cancellationToken)
+    {
+        if (Plugin.Instance?.HasTmdbApiKey() != true)
+        {
+            return Ok(new TmdbStatusResponse
+            {
+                Configured = false,
+                Connected = false,
+                Message = "No TMDb API key is configured.",
+            });
+        }
+
+        var started = DateTime.UtcNow;
+        var countries = await _tmdbService.GetCountriesAsync(cancellationToken).ConfigureAwait(false);
+        var elapsedMs = Math.Max(0, (long)(DateTime.UtcNow - started).TotalMilliseconds);
+        var connected = countries.Count > 0;
+
+        return Ok(new TmdbStatusResponse
+        {
+            Configured = true,
+            Connected = connected,
+            CountryCount = countries.Count,
+            ElapsedMilliseconds = elapsedMs,
+            Message = connected
+                ? $"Connected to TMDb successfully ({countries.Count} countries returned)."
+                : "TMDb did not return configuration data. Check the API key and server log.",
+        });
     }
 
     /// <summary>
@@ -330,26 +460,27 @@ public class PhysicalReleaseGuardController : ControllerBase
         }
 
         var config = Plugin.Instance?.Configuration;
-        var tagName = !string.IsNullOrWhiteSpace(config?.TagName) ? config.TagName : "Hidden";
+        var tagName = GetEffectiveTagName(item);
         var dryRun = config?.DryRunEnabled ?? false;
+        var region = string.IsNullOrWhiteSpace(config?.PreferredRegion) ? null : config.PreferredRegion;
 
         var wasModified = item switch
         {
             Movie movie => await _hiddenTagService.ProcessMovieAsync(
-                movie, tagName, dryRun, region: null, cancellationToken: cancellationToken).ConfigureAwait(false),
+                movie, tagName, dryRun, region, cancellationToken: cancellationToken).ConfigureAwait(false),
             Series series => await _hiddenTagService.ProcessSeriesAsync(
-                series, tagName, dryRun, region: null, cancellationToken: cancellationToken).ConfigureAwait(false),
+                series, tagName, dryRun, region, cancellationToken: cancellationToken).ConfigureAwait(false),
             _ => false
         };
 
-        if (wasModified || HasTagNow(item, tagName))
-        {
-            await _unmatchedStore.RemoveAsync(NormalizeItemId(item.Id.ToString()), cancellationToken).ConfigureAwait(false);
-            return Ok(new { Resolved = true });
-        }
+        var normalizedItemId = NormalizeItemId(item.Id.ToString());
+        var unmatched = await _unmatchedStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
+        var resolved = !unmatched.Any(entry => string.Equals(
+            NormalizeItemId(entry.ItemId),
+            normalizedItemId,
+            StringComparison.OrdinalIgnoreCase));
 
-        // Still unmatched — keep entry but bump LastSeenUtc by upserting idempotently with same reason.
-        return Ok(new { Resolved = false });
+        return Ok(new { Resolved = resolved, Modified = wasModified, DryRun = dryRun });
     }
 
     /// <summary>
@@ -376,10 +507,29 @@ public class PhysicalReleaseGuardController : ControllerBase
             return BadRequest("Missing ItemId.");
         }
 
-        var kind = await _tmdbService.ProbeTmdbIdAsync(req.TmdbId, cancellationToken).ConfigureAwait(false);
+        if (!Guid.TryParse(req.ItemId, out var itemGuid))
+        {
+            return BadRequest("Invalid ItemId.");
+        }
+
+        var item = _libraryManager.GetItemById(itemGuid);
+        if (item is not Movie and not Series)
+        {
+            return NotFound("Movie or series not found.");
+        }
+
+        var expectedKind = item is Movie ? "movie" : "series";
+        var kind = await _tmdbService.ProbeTmdbIdAsync(req.TmdbId, expectedKind, cancellationToken)
+            .ConfigureAwait(false);
         if (kind is null)
         {
             return BadRequest($"TMDb ID {req.TmdbId} does not correspond to a known movie or TV series.");
+        }
+
+        if ((item is Movie && kind != "movie") || (item is Series && kind != "series"))
+        {
+            return BadRequest(
+                $"TMDb ID {req.TmdbId} is a {kind}, but '{item.Name}' is a {item.GetType().Name.ToLowerInvariant()}.");
         }
 
         var config = Plugin.Instance?.Configuration;
@@ -423,15 +573,37 @@ public class PhysicalReleaseGuardController : ControllerBase
                 new { Error = "Could not save manual link to disk." });
         }
 
-        // Successful manual link clears any existing unmatched entry.
-        await _unmatchedStore.RemoveAsync(normalizedItemId, cancellationToken).ConfigureAwait(false);
+        // Apply the newly pinned ID immediately. This turns a formerly two-step
+        // "save, then retry" workflow into one action and only clears the unmatched
+        // entry after release data was actually resolved.
+        var tagName = GetEffectiveTagName(item);
+        var dryRun = config.DryRunEnabled;
+        var region = string.IsNullOrWhiteSpace(config.PreferredRegion) ? null : config.PreferredRegion;
+        var modified = item switch
+        {
+            Movie movie => await _hiddenTagService.ProcessMovieAsync(
+                movie, tagName, dryRun, region, cancellationToken).ConfigureAwait(false),
+            Series series => await _hiddenTagService.ProcessSeriesAsync(
+                series, tagName, dryRun, region, cancellationToken).ConfigureAwait(false),
+            _ => false,
+        };
+
+        var unmatched = await _unmatchedStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
+        var applied = !unmatched.Any(entry => string.Equals(
+            NormalizeItemId(entry.ItemId),
+            normalizedItemId,
+            StringComparison.OrdinalIgnoreCase));
 
         return Ok(new ManualLinkResponse
         {
             Saved = true,
+            Applied = applied,
+            Modified = modified,
+            DryRun = dryRun,
             Kind = kind,
             ItemId = normalizedItemId,
-            TmdbId = req.TmdbId
+            TmdbId = req.TmdbId,
+            TagName = tagName,
         });
     }
 
@@ -474,14 +646,59 @@ public class PhysicalReleaseGuardController : ControllerBase
         return Ok(new { Removed = true });
     }
 
-    private static bool HasTagNow(BaseItem item, string tagName)
+    private string GetEffectiveTagName(BaseItem item)
     {
-        if (item.Tags is null)
+        var perLibraryConfig = BuildPerLibraryConfigLookup();
+        var library = _libraryManager.GetCollectionFolders(item).FirstOrDefault();
+        if (library is not null)
         {
-            return false;
+            var normalizedLibraryId = NormalizeLibraryId(library.Id.ToString("N", CultureInfo.InvariantCulture));
+            if (perLibraryConfig.TryGetValue(normalizedLibraryId, out var libraryConfig) &&
+                !string.IsNullOrWhiteSpace(libraryConfig.TagName))
+            {
+                return libraryConfig.TagName.Trim();
+            }
         }
 
-        return item.Tags.Any(t => string.Equals(t, tagName, StringComparison.OrdinalIgnoreCase));
+        var globalTagName = Plugin.Instance?.Configuration.TagName;
+        return !string.IsNullOrWhiteSpace(globalTagName) ? globalTagName.Trim() : "Hidden";
+    }
+
+    private static bool IsExcludedItem(
+        BaseItem item,
+        ISet<string> excludedItemIds,
+        ISet<string> excludedItemKeys)
+    {
+        var normalizedItemId = NormalizeItemId(item.Id.ToString("N", CultureInfo.InvariantCulture));
+        if (excludedItemIds.Contains(normalizedItemId))
+        {
+            return true;
+        }
+
+        var itemKey = CreateItemKey(item);
+        return !string.IsNullOrWhiteSpace(itemKey) && excludedItemKeys.Contains(itemKey);
+    }
+
+    private static string CreateItemKey(BaseItem item)
+    {
+        var itemType = item switch
+        {
+            Movie => "movie",
+            Series => "series",
+            _ => item.GetType().Name.ToLower(CultureInfo.InvariantCulture),
+        };
+        var itemName = (item.Name ?? string.Empty).Trim().ToLower(CultureInfo.InvariantCulture);
+        var productionYear = item.ProductionYear?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
+        return string.IsNullOrWhiteSpace(itemName)
+            ? string.Empty
+            : string.Join("|", itemType, itemName, productionYear);
+    }
+
+    private static string NormalizeConfiguredItemKey(string? itemKey)
+    {
+        return string.IsNullOrWhiteSpace(itemKey)
+            ? string.Empty
+            : itemKey.Trim().ToLower(CultureInfo.InvariantCulture);
     }
 
     private static string NormalizeItemId(string? itemId)
@@ -503,11 +720,230 @@ public class PhysicalReleaseGuardController : ControllerBase
 /// </summary>
 public class ScanStatusResponse
 {
-    /// <summary>
-    /// Gets or sets a value indicating whether a scan is currently running for this library.
-    /// </summary>
     [JsonPropertyName("Scanning")]
     public bool Scanning { get; set; }
+
+    [JsonPropertyName("CanCancel")]
+    public bool CanCancel { get; set; }
+
+    [JsonPropertyName("State")]
+    public string State { get; set; } = "Idle";
+
+    [JsonPropertyName("LibraryId")]
+    public string LibraryId { get; set; } = string.Empty;
+
+    [JsonPropertyName("LibraryName")]
+    public string LibraryName { get; set; } = string.Empty;
+
+    [JsonPropertyName("Total")]
+    public int Total { get; set; }
+
+    [JsonPropertyName("Excluded")]
+    public int Excluded { get; set; }
+
+    [JsonPropertyName("Processed")]
+    public int Processed { get; set; }
+
+    [JsonPropertyName("Modified")]
+    public int Modified { get; set; }
+
+    [JsonPropertyName("Skipped")]
+    public int Skipped { get; set; }
+
+    [JsonPropertyName("Percent")]
+    public int Percent { get; set; }
+
+    [JsonPropertyName("CurrentItem")]
+    public string CurrentItem { get; set; } = string.Empty;
+
+    [JsonPropertyName("Message")]
+    public string Message { get; set; } = string.Empty;
+
+    [JsonPropertyName("DryRun")]
+    public bool DryRun { get; set; }
+
+    [JsonPropertyName("StartedUtc")]
+    public DateTime? StartedUtc { get; set; }
+
+    [JsonPropertyName("CompletedUtc")]
+    public DateTime? CompletedUtc { get; set; }
+
+    public static ScanStatusResponse Idle(string libraryId) => new()
+    {
+        LibraryId = libraryId,
+        State = "Idle",
+        Message = "Ready to scan.",
+    };
+}
+
+internal sealed class LibraryScanState : IDisposable
+{
+    private readonly object _gate = new();
+    private readonly CancellationTokenSource _cancellation = new();
+    private string _state = "Queued";
+    private string _currentItem = string.Empty;
+    private string _message = "Scan queued.";
+    private int _total;
+    private int _excluded;
+    private int _processed;
+    private int _modified;
+    private int _skipped;
+    private DateTime? _completedUtc;
+
+    public LibraryScanState(string libraryId, string libraryName, bool dryRun)
+    {
+        LibraryId = libraryId;
+        LibraryName = libraryName;
+        DryRun = dryRun;
+        StartedUtc = DateTime.UtcNow;
+    }
+
+    public string LibraryId { get; }
+
+    public string LibraryName { get; }
+
+    public bool DryRun { get; }
+
+    public DateTime StartedUtc { get; }
+
+    public CancellationToken CancellationToken => _cancellation.Token;
+
+    public bool IsRunning
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return IsActiveState(_state);
+            }
+        }
+    }
+
+    public void MarkStarted(int total, int excluded)
+    {
+        lock (_gate)
+        {
+            _total = total;
+            _excluded = excluded;
+            if (!_cancellation.IsCancellationRequested)
+            {
+                _state = "Running";
+                _message = DryRun ? "Dry run in progress." : "Scan in progress.";
+            }
+        }
+    }
+
+    public void SetCurrentItem(string itemName)
+    {
+        lock (_gate)
+        {
+            if (IsActiveState(_state))
+            {
+                _currentItem = itemName;
+            }
+        }
+    }
+
+    public void RecordProcessed(bool modified, bool failed)
+    {
+        lock (_gate)
+        {
+            _processed++;
+            if (modified) _modified++;
+            if (failed) _skipped++;
+        }
+    }
+
+    public void MarkCompleted(string message)
+    {
+        lock (_gate)
+        {
+            _state = "Completed";
+            _currentItem = string.Empty;
+            _message = message;
+            _completedUtc = DateTime.UtcNow;
+        }
+    }
+
+    public void MarkFailed(string message)
+    {
+        lock (_gate)
+        {
+            _state = "Failed";
+            _currentItem = string.Empty;
+            _message = message;
+            _completedUtc = DateTime.UtcNow;
+        }
+    }
+
+    public void MarkCancelled()
+    {
+        lock (_gate)
+        {
+            _state = "Cancelled";
+            _currentItem = string.Empty;
+            _message = "Scan cancelled.";
+            _completedUtc = DateTime.UtcNow;
+        }
+    }
+
+    public bool TryCancel()
+    {
+        lock (_gate)
+        {
+            if (!IsActiveState(_state))
+            {
+                return false;
+            }
+
+            _state = "Cancelling";
+            _message = "Cancellation requested; finishing active TMDb requests.";
+        }
+
+        _cancellation.Cancel();
+        return true;
+    }
+
+    public ScanStatusResponse Snapshot()
+    {
+        lock (_gate)
+        {
+            var scanning = IsActiveState(_state);
+            var percent = _total > 0
+                ? Math.Clamp((int)Math.Round((double)_processed / _total * 100), 0, 100)
+                : _state == "Completed" ? 100 : 0;
+
+            return new ScanStatusResponse
+            {
+                Scanning = scanning,
+                CanCancel = scanning && _state != "Cancelling",
+                State = _state,
+                LibraryId = LibraryId,
+                LibraryName = LibraryName,
+                Total = _total,
+                Excluded = _excluded,
+                Processed = _processed,
+                Modified = _modified,
+                Skipped = _skipped,
+                Percent = percent,
+                CurrentItem = _currentItem,
+                Message = _message,
+                DryRun = DryRun,
+                StartedUtc = StartedUtc,
+                CompletedUtc = _completedUtc,
+            };
+        }
+    }
+
+    public void Dispose()
+    {
+        _cancellation.Dispose();
+    }
+
+    private static bool IsActiveState(string state)
+    {
+        return state is "Queued" or "Running" or "Cancelling";
+    }
 }
 
 public class RetryLookupRequest
@@ -530,6 +966,15 @@ public class ManualLinkResponse
     [JsonPropertyName("Saved")]
     public bool Saved { get; set; }
 
+    [JsonPropertyName("Applied")]
+    public bool Applied { get; set; }
+
+    [JsonPropertyName("Modified")]
+    public bool Modified { get; set; }
+
+    [JsonPropertyName("DryRun")]
+    public bool DryRun { get; set; }
+
     [JsonPropertyName("Kind")]
     public string Kind { get; set; } = string.Empty;
 
@@ -538,4 +983,25 @@ public class ManualLinkResponse
 
     [JsonPropertyName("TmdbId")]
     public int TmdbId { get; set; }
+
+    [JsonPropertyName("TagName")]
+    public string TagName { get; set; } = string.Empty;
+}
+
+public class TmdbStatusResponse
+{
+    [JsonPropertyName("Configured")]
+    public bool Configured { get; set; }
+
+    [JsonPropertyName("Connected")]
+    public bool Connected { get; set; }
+
+    [JsonPropertyName("CountryCount")]
+    public int CountryCount { get; set; }
+
+    [JsonPropertyName("ElapsedMilliseconds")]
+    public long ElapsedMilliseconds { get; set; }
+
+    [JsonPropertyName("Message")]
+    public string Message { get; set; } = string.Empty;
 }
