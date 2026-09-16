@@ -55,8 +55,13 @@ Single-library scans now honor title exclusions just like scheduled and auto-sca
 
 ### Prerequisites
 
-- Jellyfin server **10.11.x**
+- Jellyfin server **12.1.x**
 - A free [TMDb API key](https://www.themoviedb.org/settings/api)
+
+> [!IMPORTANT]
+> **Upgrading from Jellyfin 10.11?** Jellyfin 12.0 ships database migrations that cannot be rolled back without a full restore, and the Jellyfin release notes recommend removing third-party plugins before migrating. Take a backup, remove this plugin, upgrade Jellyfin, then reinstall it from the catalog.
+>
+> Plugin v1.13.0.0 and newer target Jellyfin 12.1 only. If you are staying on Jellyfin 10.11, use plugin version **1.12.0.0**.
 
 ### Via Plugin Repository (Recommended)
 
@@ -80,9 +85,9 @@ dotnet restore
 dotnet build -c Release
 ```
 
-> ⚠️ You'll need the [.NET 9.0 SDK](https://dotnet.microsoft.com/download/dotnet/9.0) installed to build.
+> ⚠️ You'll need the [.NET 10.0 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) installed to build.
 
-The compiled `PhysicalReleaseGuard.dll` will be in `PhysicalReleaseGuard/bin/Release/net9.0/`.
+The compiled `PhysicalReleaseGuard.dll` will be in `PhysicalReleaseGuard/bin/Release/net10.0/`.
 
 #### Install in Jellyfin
 

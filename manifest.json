@@ -8,6 +8,14 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.13.0.0",
+        "changelog": "Jellyfin 12.1 support. Rebuilt against Jellyfin 12.1.0 on .NET 10 (targetAbi 12.1.0.0); requires Jellyfin 12.1 or newer (Jellyfin 10.11 users should stay on v1.12.0.0). Includes all v1.12.0 scan quality-of-life improvements. Also fixes the config page's Scan Schedule hour, which was silently ignored because it posted to a non-existent task-trigger route using the task Key instead of the task id.",
+        "targetAbi": "12.1.0.0",
+        "sourceUrl": "https://raw.githubusercontent.com/CodeSieb/PhysicalReleaseGuard/main/plugin/PhysicalReleaseGuard_1.13.0.0.zip",
+        "checksum": "92cd4c89634746be4b763b3016746f74",
+        "timestamp": "2026-09-16T00:00:00Z"
+      },
+      {
         "version": "1.12.0.0",
         "changelog": "Quality-of-life release: live per-library scan progress and cancellation, scan-all-enabled, TMDb connection test, bulk library and title-exclusion controls, configurable metadata settle delay for auto-scan, save-and-apply manual TMDb links, correct unmatched cleanup, and exclusion handling for single-library scans.",
         "targetAbi": "10.11.0.0",

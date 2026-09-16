@@ -10,12 +10,12 @@ namespace PhysicalReleaseGuard.Services;
 /// <summary>
 /// Background service that monitors for newly created users and automatically
 /// adds the plugin's configured tag to their BlockedTags in Parental Control.
-/// BlockedTags in Jellyfin 10.11 are stored as a single Preference entry with
+/// BlockedTags are stored as a single Preference entry with
 /// PreferenceKind.BlockedTags (one row per (UserId, Kind) due to the table's
-/// UNIQUE constraint), with the value being a comma-separated list of tag
-/// names. Adding a second Preference row of the same Kind triggers a SQL
-/// UNIQUE-constraint failure, so we always update the existing row's value
-/// instead of appending.
+/// UNIQUE constraint, which is still enforced in Jellyfin 12.x), with the value
+/// being a pipe-separated list of tag names. Adding a second Preference row of
+/// the same Kind triggers a SQL UNIQUE-constraint failure, so we always update
+/// the existing row's value instead of appending.
 /// </summary>
 public class UserTagBlockService : IHostedService
 {
@@ -28,9 +28,9 @@ public class UserTagBlockService : IHostedService
     // Poll interval for checking new users.
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(30);
 
-    // Jellyfin serializes user.SetPreference(PreferenceKind.BlockedTags, string[]) as a
-    // pipe-separated list. Read-side parsing still accepts ',' for backward compatibility
-    // with manually-edited rows from older plugin versions.
+    // Jellyfin stores BlockedTags as a pipe-separated list. Read-side parsing still
+    // accepts ',' for backward compatibility with manually-edited rows from older
+    // plugin versions.
     private const string BlockedTagsSeparator = "|";
 
     private CancellationTokenSource? _cts;
@@ -229,11 +229,9 @@ public class UserTagBlockService : IHostedService
     /// to be saved; false if the tag was already present.
     ///
     /// Jellyfin persists BlockedTags as a single Preference row whose Value is
-    /// a pipe-separated list of tag names (matching how Jellyfin's own
-    /// <c>user.SetPreference(PreferenceKind.BlockedTags, policy.BlockedTags)</c>
-    /// serializes a <c>string[]</c> via <c>string.Join("|", tags)</c>). Older rows
-    /// or manually-edited values may have used ',' as a separator, so we accept
-    /// either on read and always write back using '|'.
+    /// a pipe-separated list of tag names (Jellyfin joins the BlockedTags policy
+    /// array with '|'). Older rows or manually-edited values may have used ',' as
+    /// a separator, so we accept either on read and always write back using '|'.
     /// </summary>
     private static bool TryMergeTagIntoBlockedTagsPreference(User user, string tagName)
     {

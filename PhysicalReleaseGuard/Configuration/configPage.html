@@ -296,6 +296,22 @@
                 return ApiClient.getJSON(ApiClient.getUrl("Library/VirtualFolders"));
             }
 
+            // Jellyfin identifies scheduled tasks by the MD5 hash of the task type's full
+            // name (IScheduledTaskWorker.Id), not by IScheduledTask.Key, so the trigger
+            // endpoint needs the Id resolved from the task list rather than the Key.
+            function getScanTaskId() {
+                return ApiClient.getJSON(ApiClient.getUrl("ScheduledTasks")).then(function (tasks) {
+                    var list = Array.isArray(tasks) ? tasks : [];
+                    for (var i = 0; i < list.length; i++) {
+                        var key = (list[i].Key || list[i].key || "").toString();
+                        if (key === "PhysicalReleaseGuardScan") {
+                            return (list[i].Id || list[i].id || "").toString();
+                        }
+                    }
+                    return "";
+                });
+            }
+
             function getLibraryId(library) {
                 return (library.ItemId || library.itemId || library.Id || library.id || "").toString();
             }
@@ -1101,12 +1117,23 @@
                             type: "DailyTrigger",
                             timeOfDayTicks: ticks
                         };
-                        ApiClient.ajax({
-                            type: "POST",
-                            url: ApiClient.getUrl("ScheduledTasks/Tasks/PhysicalReleaseGuardScan/Triggers"),
-                            data: JSON.stringify([trigger]),
-                            contentType: "application/json"
-                        }).catch(function () { });
+                        getScanTaskId().then(function (taskId) {
+                            if (!taskId) {
+                                console.warn("Physical Release Guard: scheduled task not found; the scan schedule was not updated.");
+                                return;
+                            }
+
+                            return ApiClient.ajax({
+                                type: "POST",
+                                url: ApiClient.getUrl("ScheduledTasks/" + encodeURIComponent(taskId) + "/Triggers"),
+                                data: JSON.stringify([trigger]),
+                                contentType: "application/json"
+                            }).catch(function (err) {
+                                console.error("Physical Release Guard: failed to update the scan schedule trigger.", err);
+                            });
+                        }).catch(function (err) {
+                            console.error("Physical Release Guard: could not resolve the scheduled task id.", err);
+                        });
 
                         Dashboard.processPluginConfigurationUpdateResult(result);
                     });
